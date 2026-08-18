@@ -1,0 +1,8 @@
+.nextflow*
+work/
+results/
+*.nflog
+.DS_Store
+__pycache__/
+*.pyc
+.apptainer/
