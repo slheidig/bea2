@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 """Run AIUPred disorder (or binding) prediction on one OG's sequences.
 
-Uses the aiupred_lib API from https://github.com/doszilab/AIUPred. Runs inside
-the authors' official CPU image, ghcr.io/doszilab/aiupred:cpu, where the code
-lives under /opt/aiupred; $AIUPRED_PATH overrides that root. Runs on CPU.
-Sequences are de-gapped first.
+Drives the `aiupred` command-line tool shipped in the authors' official CPU
+image, ghcr.io/doszilab/aiupred:cpu (AIUPred 3.1.2, package `aiupred`). Earlier
+AIUPred releases exposed a flat `aiupred_lib` module with a Python API; that
+module no longer exists, so this wrapper goes through the CLI instead — the
+interface the authors version and test.
+
+Sequences are de-gapped before prediction, so residue_index is 1-based over the
+ungapped sequence.
 
 Output (standard predictor format):
   sequence_id  residue_index  residue  aiupred_<mode>
 """
 import argparse
 import os
+import subprocess
 import sys
+import tempfile
 
 
 def read_fasta(path):
-    seqs, name, order = {}, None, []
+    seqs, order, name = {}, [], None
     with open(path) as fh:
         for line in fh:
             line = line.rstrip("\n")
@@ -33,64 +39,85 @@ def main():
     ap.add_argument("--fasta", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--mode", default="disorder", choices=["disorder", "binding"])
+    ap.add_argument("--aiupred-bin", default=os.environ.get("AIUPRED_BIN", "aiupred"),
+                    help="AIUPred executable (default: aiupred, from the container's PATH)")
     args = ap.parse_args()
 
-    _add_aiupred_to_syspath(os.environ.get("AIUPRED_PATH", "/opt/aiupred"))
-    import aiupred_lib
-
-    # AIUPred API: init the transformer + regression networks once, then predict
-    # per sequence. Fall back through the known entry-point names.
-    predict_one = None
-    if hasattr(aiupred_lib, "init_models") and hasattr(aiupred_lib, "predict"):
-        models = aiupred_lib.init_models(args.mode) if _accepts_arg(aiupred_lib.init_models) \
-            else aiupred_lib.init_models()
-        models = models if isinstance(models, tuple) else (models,)
-        predict_one = lambda seq: aiupred_lib.predict(seq, *models)
-    elif hasattr(aiupred_lib, "aiupred_disorder"):
-        predict_one = aiupred_lib.aiupred_disorder
-    if predict_one is None:
-        sys.exit("ERROR: unrecognised aiupred_lib API — check the AIUPred version in the container")
-
     order, seqs = read_fasta(args.fasta)
+    if not order:
+        sys.exit(f"ERROR: no sequences read from {args.fasta}")
+
+    with tempfile.TemporaryDirectory(dir=".") as tmp:
+        # Feed AIUPred the de-gapped sequences under normalised ids, so the ids
+        # it echoes back line up with what the rest of the pipeline expects.
+        in_fa = os.path.join(tmp, "degapped.fasta")
+        with open(in_fa, "w") as fh:
+            for sid in order:
+                fh.write(f">{sid}\n{seqs[sid]}\n")
+
+        raw = os.path.join(tmp, "aiupred.tsv")
+        # --force-cpu: the cluster nodes have no GPU, and without it AIUPred
+        # defaults to GPU index 0 and dies. -b switches to AIUPred-binding.
+        cmd = [args.aiupred_bin, "-i", in_fa, "-o", raw, "--force-cpu"]
+        if args.mode == "binding":
+            cmd.append("-b")
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            sys.stderr.write(proc.stdout + proc.stderr)
+            sys.exit(f"ERROR: {' '.join(cmd)} failed with exit {proc.returncode}")
+
+        scores = parse_aiupred(raw, args.mode)
+
     col = f"aiupred_{args.mode}"
     with open(args.out, "w") as fh:
         fh.write(f"sequence_id\tresidue_index\tresidue\t{col}\n")
         for sid in order:
             seq = seqs[sid]
-            scores = predict_one(seq)
-            scores = list(getattr(scores, "tolist", lambda: scores)())
-            if len(scores) != len(seq):
-                print(f"WARNING: {sid}: {len(scores)} scores for {len(seq)} residues")
+            vals = scores.get(sid)
+            if vals is None:
+                print(f"WARNING: {sid}: no AIUPred output, writing NaN")
+                vals = []
+            if len(vals) != len(seq):
+                print(f"WARNING: {sid}: {len(vals)} scores for {len(seq)} residues")
             for i, aa in enumerate(seq):
-                v = scores[i] if i < len(scores) else float("nan")
+                v = vals[i] if i < len(vals) else float("nan")
                 fh.write(f"{sid}\t{i + 1}\t{aa}\t{float(v):.6g}\n")
     print(f"wrote {args.out}: {len(order)} sequences ({col})")
 
 
-def _add_aiupred_to_syspath(root):
-    """Put the directory that actually contains aiupred_lib.py on sys.path.
+def parse_aiupred(path, mode):
+    """Read AIUPred's TSV into {sequence_id: [score, ...]}.
 
-    The AIUPred distribution does not keep aiupred_lib.py at its top level in
-    every layout (a plain clone root does not import), so rather than assume,
-    walk the tree once and use whatever directory holds it. Falls back to the
-    root itself, which is correct when the module is already importable.
+    The file opens with a '#' banner, then one '>id' line per sequence followed
+    by per-residue rows: position, residue, then one or more score columns.
+    With -b AIUPred appends the binding score to the disorder one, so take the
+    last numeric column in binding mode and the first otherwise.
     """
-    sys.path.insert(0, root)
-    if os.path.isfile(os.path.join(root, "aiupred_lib.py")):
-        return
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__"}]
-        if "aiupred_lib.py" in filenames:
-            sys.path.insert(0, dirpath)
-            return
-
-
-def _accepts_arg(fn):
-    try:
-        import inspect
-        return len(inspect.signature(fn).parameters) >= 1
-    except (TypeError, ValueError):
-        return False
+    out, current = {}, None
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith(">"):
+                current = line[1:].split()[0]
+                out[current] = []
+                continue
+            if current is None:
+                continue
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            nums = []
+            for p in parts[2:]:
+                try:
+                    nums.append(float(p))
+                except ValueError:
+                    pass
+            if not nums:
+                continue
+            out[current].append(nums[-1] if mode == "binding" and len(nums) > 1 else nums[0])
+    return out
 
 
 if __name__ == "__main__":
