@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Run AIUPred disorder (or binding) prediction on one OG's sequences.
 
-Uses the aiupred_lib API from https://github.com/doszilab/AIUPred (expected at
-$AIUPRED_PATH, default /opt/aiupred — see docker/aiupred/Dockerfile). Runs on
-CPU. Sequences are de-gapped first.
+Uses the aiupred_lib API from https://github.com/doszilab/AIUPred. Runs inside
+the authors' official CPU image, ghcr.io/doszilab/aiupred:cpu, where the code
+lives under /opt/aiupred; $AIUPRED_PATH overrides that root. Runs on CPU.
+Sequences are de-gapped first.
 
 Output (standard predictor format):
   sequence_id  residue_index  residue  aiupred_<mode>
@@ -34,7 +35,7 @@ def main():
     ap.add_argument("--mode", default="disorder", choices=["disorder", "binding"])
     args = ap.parse_args()
 
-    sys.path.insert(0, os.environ.get("AIUPRED_PATH", "/opt/aiupred"))
+    _add_aiupred_to_syspath(os.environ.get("AIUPRED_PATH", "/opt/aiupred"))
     import aiupred_lib
 
     # AIUPred API: init the transformer + regression networks once, then predict
@@ -64,6 +65,24 @@ def main():
                 v = scores[i] if i < len(scores) else float("nan")
                 fh.write(f"{sid}\t{i + 1}\t{aa}\t{float(v):.6g}\n")
     print(f"wrote {args.out}: {len(order)} sequences ({col})")
+
+
+def _add_aiupred_to_syspath(root):
+    """Put the directory that actually contains aiupred_lib.py on sys.path.
+
+    The AIUPred distribution does not keep aiupred_lib.py at its top level in
+    every layout (a plain clone root does not import), so rather than assume,
+    walk the tree once and use whatever directory holds it. Falls back to the
+    root itself, which is correct when the module is already importable.
+    """
+    sys.path.insert(0, root)
+    if os.path.isfile(os.path.join(root, "aiupred_lib.py")):
+        return
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__"}]
+        if "aiupred_lib.py" in filenames:
+            sys.path.insert(0, dirpath)
+            return
 
 
 def _accepts_arg(fn):
