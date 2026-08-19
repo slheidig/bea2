@@ -1,0 +1,7 @@
+# BuildKit config for the "bea2" builder created by docker/build.sh.
+# The point of this file is the GC limit: Docker Desktop's default builder keeps
+# up to 20 GB of build cache, which does not fit on a laptop with ~18 GB free.
+[worker.oci]
+  gc = true
+  gckeepstorage = 6000        # MB of build cache to keep (~6 GB)
+  max-parallelism = 2         # emulated conda/pip steps are memory-hungry

@@ -77,18 +77,40 @@ results/
 
 ## Containers
 
-| Image | Used for | Status |
-|---|---|---|
-| `slheidig/csubst:01` | cdskit, pruning, IQ-TREE, ete4 rooting, csubst | exists |
-| `slheidig/og_b2b_pca:latest` | b2bTools + all pandas/matplotlib steps | exists |
-| `slheidig/hyphy:2.5.1` | HyPhy 2.5.1 (amd64) | `docker build -t slheidig/hyphy:2.5.1 docker/hyphy` |
-| `slheidig/aiupred:01` | AIUPred, CPU torch | `docker build -t slheidig/aiupred:01 docker/aiupred` |
-| `slheidig/ipc:01` | IPC pI + per-residue charge | `docker build -t slheidig/ipc:01 docker/ipc` |
-| `quay.io/biocontainers/mafft` | mafft (`hpc`/`local`; module on hydra) | public |
+| Image | Used for | Recipe | Platforms |
+|---|---|---|---|
+| `slheidig/csubst:01` | cdskit, pruning, IQ-TREE, ete4 rooting, csubst | `docker/csubst/` | amd64 + arm64 |
+| `slheidig/og_b2b_pca:latest` | b2bTools + all pandas/matplotlib steps | `docker/og_b2b_pca/` | amd64 + arm64 |
+| `slheidig/hyphy:2.5.101` | HyPhy (FEL/FUBAR/MEME/contrast-fel/RELAX) | `docker/hyphy/` | amd64 + arm64 |
+| `ghcr.io/doszilab/aiupred:cpu` | AIUPred disorder/binding | authors' official image, nothing to build | amd64 only |
+| `slheidig/ipc:01` | IPC pI + per-residue charge | `docker/ipc/` | amd64 + arm64 |
+| `quay.io/biocontainers/mafft` | mafft (`hpc`/`local`; module on hydra) | public | amd64 |
 
-Push with `docker push slheidig/<name>` so the clusters can pull → singularity converts automatically.
+### Building them (multi-arch, from an Apple Silicon Mac)
 
-**To verify once after building** `slheidig/aiupred:01`: `bin/run_aiupred.py` expects the `aiupred_lib` API (`init_models()` + `predict()`); run one OG and check the disorder column. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
+```bash
+docker/build.sh                  # build + push the images that need it
+docker/build.sh hyphy            # a single target
+docker/build.sh --load hyphy      # single-arch local image, for testing only
+docker/build.sh --dry-run all     # show the plan
+```
+
+**Never use plain `docker build` for these.** On an arm Mac it produces an
+arm64-only image that looks fine locally and cannot run on the clusters, and
+Docker Desktop's default builder cannot write multi-arch manifests at all
+(`docker exporter does not currently support exporting manifest lists`).
+`docker/build.sh` creates a `docker-container` builder that can, takes the
+per-image platform list from `docker/docker-bake.hcl`, pushes without keeping a
+local copy (laptop disk), verifies the published manifest really contains
+`linux/amd64`, and stops the builder again afterwards.
+
+Disk: the builder's cache is capped at ~6 GB by `docker/buildkitd.toml`.
+`docker buildx du` shows it, `docker buildx rm bea2` reclaims it.
+
+Once pushed, the clusters pull from Docker Hub and singularity/apptainer
+converts automatically, picking the amd64 entry from the manifest.
+
+**To verify once on the HPC**: `bin/run_aiupred.py` imports `aiupred_lib` from `$AIUPRED_PATH` (default `/opt/aiupred`, where `ghcr.io/doszilab/aiupred:cpu` keeps it) and expects the `init_models()` + `predict()` API; it locates `aiupred_lib.py` anywhere under that root, so a layout change won't break it. Run one OG and check the disorder column. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
 
 ## Extending with a new predictor
 

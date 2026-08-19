@@ -58,7 +58,7 @@ Per OG (channels joined on OG id):
 5. **IQTREE** — GTR+G, 1000 UFBoot, on the **pruned codon alignment**, with outgroup-monophyly constraint built from `--outgroup_level` (partial outgroup sets OK; none → unconstrained). Publishes the **complete IQ-TREE native output**. *(Hydra: `module IQ-TREE`; hpc: container.)*
 6. **ROOT_TREE** (`bin/root_tree.py`, ete4, in the csubst container) — strip UFBoot labels, outgroup-root (two-step `set_outgroup`), midpoint fallback — split out from csubst_pipeline step 3.
 7. **CSUBST** (container `slheidig/csubst:01`) — `doctor` → `search` (arity 2, foreground from `bin/make_foreground.py`) → `inspect` (ancestral seqs, branch maps) → `sites` on pairs significant for convergence OR divergence (`bin/select_significant_pairs.py`) → per-OG aggregation (`bin/aggregate_csubst.py`). The process publishes its **entire work products including `csubst_iqtree/`** (the full IQ-TREE intermediates csubst generates — `.state` files, ancestral reconstruction — as you required). `-safe` IQ-TREE wrapper kept.
-8. **HYPHY** (container from your `Dockerfile` → pushed as e.g. `slheidig/hyphy:2.5.1`) — reprocessed from `selection_scan.sh`, split into `bin/mask_stops.py`, `bin/tag_foreground.py`, `bin/parse_hyphy_persite.py`, `bin/parse_relax.py`, `bin/hyphy_by_site.py`:
+8. **HYPHY** (container from `docker/hyphy/` → pushed as `slheidig/hyphy:2.5.101`) — reprocessed from `selection_scan.sh`, split into `bin/mask_stops.py`, `bin/tag_foreground.py`, `bin/parse_hyphy_persite.py`, `bin/parse_relax.py`, `bin/hyphy_by_site.py`:
    - whole-tree: **FEL, FUBAR, MEME** on pruned codon MSA + rooted tree;
    - foreground: **Contrast-FEL** (warm tips tagged `{Foreground}`) and **RELAX** (`--models Minimal`, gene-level K).
    - per-OG: one per-site TSV per method + the combined `by_site` table/plot. Since the tree/alignment are the canonical pruned ones, HyPhy sites align 1:1 with csubst sites — no remapping.
@@ -98,12 +98,17 @@ results/
 |---|---|---|
 | `slheidig/csubst:01` | exists | cdskit backalign, prune, root_tree (ete4), csubst; iqtree inside |
 | `slheidig/og_b2b_pca:latest` | exists | b2btools + all pandas/matplotlib steps (mapping, combine, plots, global stats) |
-| `slheidig/hyphy:2.5.1` | Dockerfile exists (`Dockerfile` in csubst_trial) → push | FEL/FUBAR/MEME/Contrast-FEL/RELAX (amd64-pinned) |
-| `slheidig/aiupred` | **to build** — `python:3.11-slim` + torch-CPU + AIUPred from GitHub, models baked in at build time, plus a thin `bin/run_aiupred.py` CLI (fasta in → TSV out) | disorder |
+| `slheidig/hyphy:2.5.101` | built from `docker/hyphy/` | FEL/FUBAR/MEME/Contrast-FEL/RELAX (amd64 + arm64) |
+| `ghcr.io/doszilab/aiupred:cpu` | authors' official CPU image (published with [AIUPred-NF](https://github.com/doszilab/AIUPred-NF)); `bin/run_aiupred.py` drives its `aiupred_lib` API (fasta in → TSV out). Nothing to build; amd64-only | disorder |
 | `slheidig/ipc` | **to build** — `python:3.11-slim` + IPC 2.x from isoelectric.org (free for academia) + a wrapper emitting per-sequence pI and per-residue charge | pI |
 | mafft / iqtree | biocontainers images on `hpc`; **modules on hydra** | alignment, trees |
 
-All images: linux/amd64, no entrypoint tricks, tool on PATH — so `singularity` conversion on the clusters is trivial. Dockerfiles live in `docker/<tool>/` in the repo.
+All images must carry a **linux/amd64** entry (the clusters); arm64 is added
+wherever every dependency has a native build, purely so the same tag runs on an
+Apple Silicon laptop without emulation. No entrypoint tricks, tool on PATH — so
+`singularity` conversion on the clusters is trivial. Dockerfiles live in
+`docker/<tool>/`, platforms per image in `docker/docker-bake.hcl`, and
+`docker/build.sh` is the only supported way to build them (see README).
 
 ## 6. Profiles
 
