@@ -131,8 +131,9 @@ workflow {
     combine_in = mapped_grouped
         .join(hotspots_ch, remainder: true)
         .join(bysite_ch, remainder: true)
-        .filter { og, m, hs, bs -> m }
-        .map { og, m, hs, bs -> tuple(og, m, hs ?: [], bs ?: []) }
+        .join(columns)
+        .filter { og, m, hs, bs, col -> m }
+        .map { og, m, hs, bs, col -> tuple(og, m, hs ?: [], bs ?: [], col) }
     COMBINE_TABLE(combine_in, cats_clean)
 
     plot_in = mapped_grouped

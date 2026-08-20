@@ -22,3 +22,6 @@ nextflow run pipeline.nf \
     --predictions_csv $house/testdata/synechococcus_predictions_all.csv \
     --outdir      $house/results \
     --apptainercache $APPTAINERCACHE -resume
+
+
+#nextflow clean -f -before $(nextflow log -q | tail -n 1)

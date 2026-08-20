@@ -25,7 +25,7 @@ process COMBINE_TABLE {
     publishDir "${params.outdir}/ogs/${og}", mode: 'copy'
 
     input:
-    tuple val(og), path(mapped), path(hotspots), path(bysite)
+    tuple val(og), path(mapped), path(hotspots), path(bysite), path(columns)
     path categories
 
     output:
@@ -36,7 +36,7 @@ process COMBINE_TABLE {
     def bs = bysite ? "--bysite ${bysite}" : ''
     """
     combine_og_table.py --og ${og} --categories ${categories} --column '${params.category_column}' \\
-        --mapped ${mapped} ${hs} ${bs} --out ${og}_combined.tsv
+        --mapped ${mapped} --columns ${columns} ${hs} ${bs} --out ${og}_combined.tsv
     """
 }
 

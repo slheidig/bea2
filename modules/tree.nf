@@ -40,7 +40,7 @@ process MAKE_CONSTRAINT {
 
 process IQTREE {
     tag "$og"
-    label 'medium'
+    label 'highmem_single'
     publishDir "${params.outdir}/ogs/${og}/evolution/iqtree/native", mode: 'copy'
 
     input:
@@ -51,20 +51,20 @@ process IQTREE {
     path "${og}.*"
 
     script:
+    def bb  = params.ufboot ? "-B ${params.ufboot}" : ''
+    def opt = "-safe -s ${codon} --seqtype CODON${params.genetic_code} " +
+              "-m ${params.iqtree_model} ${bb} -T ${task.cpus}"
     """
     IQ=\$(command -v iqtree3 || command -v iqtree2 || command -v iqtree)
     OGL=\$(cat ${oglabels})
     if [ -s ${constraint} ] && [ -n "\$OGL" ]; then
-        "\$IQ" -safe -s ${codon} -m ${params.iqtree_model} -B ${params.ufboot} -T ${task.cpus} \\
-            -g ${constraint} -o "\$OGL" --prefix ${og} -redo -quiet
+        "\$IQ" ${opt} -g ${constraint} -o "\$OGL" --prefix ${og} -redo -quiet
     elif [ -n "\$OGL" ]; then
         # single outgroup taxon: no monophyly constraint needed, root with -o
-        "\$IQ" -safe -s ${codon} -m ${params.iqtree_model} -B ${params.ufboot} -T ${task.cpus} \\
-            -o "\$OGL" --prefix ${og} -redo -quiet
+        "\$IQ" ${opt} -o "\$OGL" --prefix ${og} -redo -quiet
     else
         echo "NOTE: ${og}: no outgroup strains present -> unconstrained tree (midpoint root downstream)"
-        "\$IQ" -safe -s ${codon} -m ${params.iqtree_model} -B ${params.ufboot} -T ${task.cpus} \\
-            --prefix ${og} -redo -quiet
+        "\$IQ" ${opt} --prefix ${og} -redo -quiet
     fi
     """
 }

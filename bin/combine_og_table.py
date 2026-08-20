@@ -26,6 +26,7 @@ def main():
     ap.add_argument("--categories", required=True, help="categories_clean.tsv")
     ap.add_argument("--column", default="temp_cat2")
     ap.add_argument("--mapped", nargs="+", required=True, help="*_mapped.tsv predictor tables")
+    ap.add_argument("--columns", default=None, help="<og>.msa_columns.tsv")
     ap.add_argument("--hotspots", default=None, help="<og>.hotspots.tsv (csubst)")
     ap.add_argument("--bysite", default=None, help="<og>.by_site.tsv (hyphy)")
     ap.add_argument("--out", required=True)
@@ -56,6 +57,15 @@ def main():
     base.insert(1, "strain", base["sequence_id"].map(lambda s: strain_of(s, og)))
     base.insert(2, "category", base["strain"].map(cat_map))
     base.insert(0, "og", og)
+
+    # column occupancy per pruned position
+    if args.columns:
+        cols = pd.read_csv(args.columns, sep="\t")[["pruned_position", "occupancy"]]
+        base = base.merge(cols.rename(columns={"pruned_position": "msa_position"}),
+                          on="msa_position", how="left")
+        if "original_msa_position" in base.columns:
+            base.insert(base.columns.get_loc("original_msa_position") + 1,
+                        "occupancy", base.pop("occupancy"))
 
     # csubst hotspot recurrence per position
     if args.hotspots:
