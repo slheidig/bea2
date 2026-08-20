@@ -31,7 +31,7 @@ process BACKALIGN {
 
     script:
     """
-    cdskit backalign -s ${nuc} -a ${aln} -d ${params.genetic_code} -o ${og}.codon.fa
+    map_aa_to_nuc.py ${aln} ${nuc} ${og}
     """
 }
 

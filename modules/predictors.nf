@@ -33,8 +33,16 @@ process AIUPRED {
     tuple val(og), val('aiupred'), path("${og}_aiupred.tsv"), emit: pred
 
     script:
+    def bind = params.aiupred_binding ? '-b' : ''
+    def cols = params.aiupred_binding ? 'aiupred_disorder\\taiupred_binding' : 'aiupred_disorder'
     """
-    run_aiupred.py --fasta ${aa} --out ${og}_aiupred.tsv --mode ${params.aiupred_mode}
+    aiupred -i ${aa} -o aiupred_raw.tsv --force-cpu ${bind}
+
+    # AIUPred writes a '#' banner, then '#>id' per sequence followed by 'position residue score...' rows. 
+    printf 'sequence_id\\tresidue_index\\tresidue\\t${cols}\\n' > ${og}_aiupred.tsv
+    awk '/^#>/ { id = substr(\$0, 3); next }
+         /^#/  { next }
+         NF >= 3 { print id "\\t" \$0 }' aiupred_raw.tsv >> ${og}_aiupred.tsv
     """
 }
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nf-bea
-#SBATCH --time=0:10:00
+#SBATCH --time=1:10:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
@@ -22,9 +22,3 @@ nextflow run pipeline.nf \
     --predictions_csv $house/testdata/synechococcus_predictions_all.csv \
     --outdir      $house/results \
     --apptainercache $APPTAINERCACHE -resume
-
-
-# On the clusters:
-#   -profile hydra     (Slurm + MAFFT/IQ-TREE modules + singularity)
-#   -profile hpc       (Slurm + singularity for everything)
-#     [--slurm_account ... --slurm_queue ...]

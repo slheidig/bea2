@@ -99,7 +99,7 @@ results/
 | `slheidig/csubst:01` | exists | cdskit backalign, prune, root_tree (ete4), csubst; iqtree inside |
 | `slheidig/og_b2b_pca:latest` | exists | b2btools + all pandas/matplotlib steps (mapping, combine, plots, global stats) |
 | `slheidig/hyphy:2.5.101` | built from `docker/hyphy/` | FEL/FUBAR/MEME/Contrast-FEL/RELAX (amd64 + arm64) |
-| `ghcr.io/doszilab/aiupred:cpu` | authors' official CPU image (published with [AIUPred-NF](https://github.com/doszilab/AIUPred-NF)); `bin/run_aiupred.py` drives its `aiupred_lib` API (fasta in → TSV out). Nothing to build; amd64-only | disorder |
+| `ghcr.io/doszilab/aiupred:cpu` | authors' official CPU image (published with [AIUPred-NF](https://github.com/doszilab/AIUPred-NF)); the `aiupred` CLI is called directly with `--force-cpu -b`. Nothing to build; amd64-only | disorder + binding |
 | `slheidig/ipc` | **to build** — `python:3.11-slim` + IPC 2.x from isoelectric.org (free for academia) + a wrapper emitting per-sequence pI and per-residue charge | pI |
 | mafft / iqtree | biocontainers images on `hpc`; **modules on hydra** | alignment, trees |
 

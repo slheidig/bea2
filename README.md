@@ -110,7 +110,7 @@ Disk: the builder's cache is capped at ~6 GB by `docker/buildkitd.toml`.
 Once pushed, the clusters pull from Docker Hub and singularity/apptainer
 converts automatically, picking the amd64 entry from the manifest.
 
-**To verify once on the HPC**: `bin/run_aiupred.py` imports `aiupred_lib` from `$AIUPRED_PATH` (default `/opt/aiupred`, where `ghcr.io/doszilab/aiupred:cpu` keeps it) and expects the `init_models()` + `predict()` API; it locates `aiupred_lib.py` anywhere under that root, so a layout change won't break it. Run one OG and check the disorder column. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
+**AIUPred**: the `AIUPRED` process calls the `aiupred` CLI in the authors' image directly, with `--force-cpu` (the nodes have no GPU) and `-b`, which adds a Binding column next to Disorder in the same pass — so `aiupred_disorder` and `aiupred_binding` both come out of one run. Set `--aiupred_binding false` for disorder only. The CLI writes a `#` banner, then `#>id` per sequence followed by `position residue score...` rows; an awk step in the process pulls each id down onto its rows to produce the flat predictor table. Note the sequence headers are `#>id`, not `>id`. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
 
 ## Extending with a new predictor
 
