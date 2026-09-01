@@ -22,8 +22,8 @@ include { ALIGN_AA; BACKALIGN; PRUNE_MSA } from './modules/align'
 include { MAKE_FOREGROUND; MAKE_CONSTRAINT; IQTREE; ROOT_TREE } from './modules/tree'
 include { CSUBST } from './modules/csubst'
 include { HYPHY_WHOLETREE; HYPHY_FOREGROUND; HYPHY_BYSITE } from './modules/hyphy'
-include { B2BTOOLS; AIUPRED; IPC; SPLIT_CUSTOM_PREDICTIONS } from './modules/predictors'
-include { MAP_TO_MSA; COMBINE_TABLE; PLOT_OG; GLOBAL_STATS } from './modules/collect'
+include { B2BTOOLS; AIUPRED; IPC; DSSP_RUN; DSSP_PARSE; SPLIT_CUSTOM_PREDICTIONS } from './modules/predictors'
+include { MAP_TO_MSA; COMBINE_TABLE; PLOT_OG; PLOT_DSSP; GLOBAL_STATS } from './modules/collect'
 
 log.info """
 ================================================================================
@@ -43,6 +43,8 @@ log.info """
    genetic code (--genetic_code)     : ${params.genetic_code}
  TOOLS
    b2btools / aiupred / ipc          : ${params.b2btools} / ${params.aiupred} / ${params.ipc}
+   dssp (--dssp)                     : ${params.dssp}
+   structures (--structure_dir)      : ${params.structure_dir}
    csubst (--csubst)                 : ${params.csubst}
    hyphy (--hyphy)                   : ${params.hyphy}
    hyphy methods (--hyphy_methods)   : ${params.hyphy_methods}
@@ -53,6 +55,8 @@ log.info """
 workflow {
     if (!params.aa_dir || !params.nuc_dir || !params.categories)
         error "Required: --aa_dir, --nuc_dir, --categories"
+    if (params.dssp && !params.structure_dir)
+        error "--dssp requires --structure_dir (<structure_dir>/<og>/<sequence_id>.pdb)"
 
     // ---- pair AA + CDS fastas by OG id (filename before the first dot) -----
     aa_ch  = Channel.fromPath("${params.aa_dir}/*.{fa,fasta,faa}", checkIfExists: true)
@@ -114,6 +118,11 @@ workflow {
     if (params.b2btools) { B2BTOOLS(aa_in); preds = preds.mix(B2BTOOLS.out.pred) }
     if (params.aiupred)  { AIUPRED(aa_in);  preds = preds.mix(AIUPRED.out.pred) }
     if (params.ipc)      { IPC(aa_in);      preds = preds.mix(IPC.out.pred) }
+    if (params.dssp) {
+        DSSP_RUN(ogs.map { og, aa, nuc -> tuple(og, file("${params.structure_dir}/${og}", checkIfExists: true)) })
+        DSSP_PARSE(DSSP_RUN.out.raw)
+        preds = preds.mix(DSSP_PARSE.out.pred)
+    }
     if (params.predictions_csv) {
         SPLIT_CUSTOM_PREDICTIONS(Channel.fromPath(params.predictions_csv, checkIfExists: true))
         custom = SPLIT_CUSTOM_PREDICTIONS.out.tables.flatten()
@@ -142,6 +151,17 @@ workflow {
         .filter { og, m, aln_p, hs -> m && aln_p }
         .map { og, m, aln_p, hs -> tuple(og, m, aln_p, hs ?: []) }
     PLOT_OG(plot_in, cats_clean)
+
+    // secondary-structure cartoon + per-sequence view (secstructartist)
+    if (params.dssp) {
+        ss_in = MAP_TO_MSA.out.mapped
+            .filter { og, tool, f -> tool == 'dssp' }
+            .map { og, tool, f -> tuple(og, f) }
+            .join(hotspots_ch, remainder: true)
+            .filter { og, m, hs -> m }
+            .map { og, m, hs -> tuple(og, m, hs ?: []) }
+        PLOT_DSSP(ss_in, cats_clean)
+    }
 
     // ---- global statistics over all OGs --------------------------------------
     GLOBAL_STATS(

@@ -63,6 +63,49 @@ process IPC {
     """
 }
 
+// DSSP is the one predictor that reads structures instead of sequences:
+// one predicted model per sequence, in ${params.structure_dir}/<og>/<sequence_id>.pdb.
+process DSSP_RUN {
+    tag "$og"
+    label 'small'
+    publishDir "${params.outdir}/ogs/${og}/biophysics/dssp/native", mode: 'copy'
+
+    input:
+    tuple val(og), path(structdir)
+
+    output:
+    tuple val(og), path('dssp'), path("${og}_plddt.tsv"), emit: raw
+
+    script:
+    """
+    mkdir dssp
+    printf 'sequence_id\\tresidue_index\\tplddt\\n' > ${og}_plddt.tsv
+    for pdb in ${structdir}/*.pdb ; do
+        id=\$(basename \$pdb .pdb)
+        mkdssp -i \$pdb -o dssp/\$id.dssp
+        # pLDDT = the CA B-factor of each residue (cols 61-66 of the ATOM record)
+        awk -v id=\$id 'substr(\$0,1,4)=="ATOM" && substr(\$0,13,4)==" CA " { print id "\\t" substr(\$0,23,4)+0 "\\t" substr(\$0,61,6)+0 }' \$pdb >> ${og}_plddt.tsv
+    done
+    """
+}
+
+process DSSP_PARSE {
+    tag "$og"
+    label 'small'
+    publishDir "${params.outdir}/ogs/${og}/biophysics/dssp/native", mode: 'copy'
+
+    input:
+    tuple val(og), path(dsspdir), path(plddt)
+
+    output:
+    tuple val(og), val('dssp'), path("${og}_dssp.tsv"), emit: pred
+
+    script:
+    """
+    parse_dssp.py --dssp-dir ${dsspdir} --plddt ${plddt} --out ${og}_dssp.tsv
+    """
+}
+
 process SPLIT_CUSTOM_PREDICTIONS {
     label 'highmem_single'
     publishDir "${params.outdir}/custom_predictions", mode: 'copy', pattern: 'per_og/unmatched.tsv'

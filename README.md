@@ -14,6 +14,7 @@ aa fasta ──mafft──> AA MSA ──cdskit backalign──> codon MSA
    b2bTools        constrained) ──> rooted      (split per OG)
    AIUPred         tree ──> csubst (convergence/divergence)
    IPC                  └──> HyPhy  (FEL, FUBAR, MEME | Contrast-FEL, RELAX)
+   DSSP
         └──────────────┬───────────────────────┘
               mapped onto the pruned MSA
                        │
@@ -84,6 +85,8 @@ results/
 | `slheidig/hyphy:2.5.101` | HyPhy (FEL/FUBAR/MEME/contrast-fel/RELAX) | `docker/hyphy/` | amd64 + arm64 |
 | `ghcr.io/doszilab/aiupred:cpu` | AIUPred disorder/binding | authors' official image, nothing to build | amd64 only |
 | `slheidig/ipc:01` | IPC pI + per-residue charge | `docker/ipc/` | amd64 + arm64 |
+| `slheidig/dssp3:2` | mkdssp secondary structure + SASA | shared with SIMSApiper, nothing to build | amd64 |
+| `slheidig/simsapiper:06` | secstructartist secondary-structure plots | shared with SIMSApiper, nothing to build | amd64 |
 | `quay.io/biocontainers/mafft` | mafft (`hpc`/`local`; module on hydra) | public | amd64 |
 
 ### Building them (multi-arch, from an Apple Silicon Mac)
@@ -111,6 +114,16 @@ Once pushed, the clusters pull from Docker Hub and singularity/apptainer
 converts automatically, picking the amd64 entry from the manifest.
 
 **AIUPred**: the `AIUPRED` process calls the `aiupred` CLI in the authors' image directly, with `--force-cpu` (the nodes have no GPU) and `-b`, which adds a Binding column next to Disorder in the same pass — so `aiupred_disorder` and `aiupred_binding` both come out of one run. Set `--aiupred_binding false` for disorder only. The CLI writes a `#` banner, then `#>id` per sequence followed by `position residue score...` rows; an awk step in the process pulls each id down onto its rows to produce the flat predictor table. Note the sequence headers are `#>id`, not `>id`. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
+
+**DSSP** (`--dssp --structure_dir <dir>`, off by default): the only predictor that reads structures instead of sequences. It expects one predicted model per sequence at `<structure_dir>/<og>/<sequence_id>.pdb` — the layout ESMFold writes, single chain, residues numbered 1..N, pLDDT in the B-factor column. `DSSP_RUN` runs `mkdssp` over the OG's models and pulls the CA B-factors into a pLDDT table; `DSSP_PARSE` turns both into the flat predictor table. Because every sequence here has a model whose sequence matches the fasta exactly, the DSSP residue number is used directly as `residue_index` — none of SIMSApiper's sequence-reconciliation logic is needed. Columns: `dssp_ss8` (8-state — DSSP's H B E G I T S, with unassigned written as `X` as in SIMSApiper, so it reads as neither an alignment gap nor a loop), `dssp_ss3` (H/E/L — helix `HGI`, sheet `EB`, loop `TS` + unassigned; the same three buckets SIMSApiper uses), `dssp_acc` (SASA in Å²), `dssp_rsa` (ACC / max-ASA, Tien et al. 2013), `dssp_kd` (Kyte–Doolittle), `dssp_surface_hydrophobicity` (`rsa × kd` — hydrophobic *and* exposed), `dssp_plddt`. The two SS columns are strings, so `PLOT_OG` and `GLOBAL_STATS` skip them — `PLOT_DSSP` below plots them instead.
+
+**Secondary-structure plots** (`PLOT_DSSP`, container `slheidig/simsapiper:06`, which carries `secstructartist`): `bin/plot_dssp_ss.py` adapts SIMSApiper's `2Dstructure_plot.py` / `DSSPcodesMSA_plot.py` / `dssp_seqview_plot.py` to the pruned-MSA coordinates and splits everything **by category**, which is what bea2 compares. Per OG:
+
+- `<og>_ss_consensus.pdf` — a secstructartist cartoon of the consensus secondary structure, one ribbon track per category, above H/E/L frequency panels with the csubst hotspot sites overlaid.
+- `<og>_ss_alignment.pdf` — per-sequence H/E/L, sequences grouped by category.
+- `<og>_ss_consensus.tsv` — the numbers behind the cartoon. Published to `biophysics/dssp/` alongside the other DSSP tables, not to `plots/`.
+
+A position gets a consensus H or E when at least `--ss_consensus` (default 0.5) of the *residues present* carry it, otherwise loop. Note the denominator: gaps are excluded rather than counted as loop, so the three frequencies sum to 1 — SIMSApiper instead divides by all sequences, which lets a gappy column drag every frequency down. A gap and a loop are different things here and are drawn differently (lightgrey vs orange in the per-sequence view).
 
 ## Extending with a new predictor
 

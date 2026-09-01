@@ -1,6 +1,6 @@
 .nextflow*
 work/
-results/
+*result*/
 *.nflog
 .DS_Store
 __pycache__/

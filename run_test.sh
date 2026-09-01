@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nf-bea
-#SBATCH --time=1:10:00
+#SBATCH --time=0:30:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=4G
@@ -20,7 +20,9 @@ nextflow run pipeline.nf \
     --category_column temp_cat2 \
     --og_pattern  'CK_\d+' \
     --predictions_csv $house/testdata/synechococcus_predictions_all.csv \
-    --outdir      $house/results \
+    --dssp \
+    --structure_dir $house/testdata/structures \
+    --outdir      $house/nresults \
     --apptainercache $APPTAINERCACHE -resume
 
 

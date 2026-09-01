@@ -61,6 +61,30 @@ process PLOT_OG {
     """
 }
 
+process PLOT_DSSP {
+    tag "$og"
+    label 'small'
+    publishDir "${params.outdir}/ogs/${og}", mode: 'copy', pattern: 'plots/*.pdf'
+    // the consensus table is data, not a figure: it belongs with the other DSSP tables
+    publishDir "${params.outdir}/ogs/${og}/biophysics/dssp", mode: 'copy',
+               pattern: 'plots/*.tsv', saveAs: { f -> file(f).name }
+
+    input:
+    tuple val(og), path(mapped), path(hotspots)
+    path categories
+
+    output:
+    path 'plots/*'
+
+    script:
+    def hs = hotspots ? "--hotspots ${hotspots}" : ''
+    """
+    plot_dssp_ss.py --og ${og} --mapped ${mapped} --categories ${categories} \\
+        --column '${params.category_column}' --outgroup-level '${params.outgroup_level}' \\
+        --consensus ${params.ss_consensus} ${hs} --outdir plots
+    """
+}
+
 process GLOBAL_STATS {
     label 'highmem_single'
     publishDir "${params.outdir}", mode: 'copy'

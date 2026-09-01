@@ -27,6 +27,8 @@
 | `--hyphy_methods` | `FEL,FUBAR,MEME` | whole-tree per-site methods |
 | `--hyphy_fg_methods` | `contrast-fel,relax` | foreground methods |
 | `--csubst` / `--hyphy` / `--aiupred` / `--b2btools` / `--ipc` | `true` | per-tool toggles (bioenvada style: easy to extend with new predictors) |
+| `--dssp` / `--structure_dir` | `false` / `null` | DSSP on predicted models at `<structure_dir>/<og>/<sequence_id>.pdb` |
+| `--ss_consensus` | `0.5` | min frequency of the residues present for a consensus H/E in the DSSP plots |
 | `--ocn_cutoff`, `--omega_cutoff`, `--pvalue`, `--posterior` | as in current scripts | significance thresholds |
 | `--outdir` | `results` | |
 
@@ -38,11 +40,11 @@ Strain parsing from sequence IDs (`<og>_<strain>_<locus>`, strains may contain `
 pipeline.nf
 modules/
   align.nf        ALIGN_AA (mafft) · BACKALIGN (cdskit) · PRUNE_MSA
-  predictors.nf   B2BTOOLS · AIUPRED · IPC · SPLIT_CUSTOM_PREDICTIONS
+  predictors.nf   B2BTOOLS · AIUPRED · IPC · DSSP_RUN · DSSP_PARSE · SPLIT_CUSTOM_PREDICTIONS
   tree.nf         IQTREE · ROOT_TREE
   csubst.nf       CSUBST_SEARCH · CSUBST_SITES · CSUBST_AGGREGATE
   hyphy.nf        HYPHY_WHOLETREE · HYPHY_FOREGROUND · HYPHY_BYSITE
-  collect.nf      MAP_TO_MSA · COMBINE_TABLE · PLOT_OG · GLOBAL_STATS
+  collect.nf      MAP_TO_MSA · COMBINE_TABLE · PLOT_OG · PLOT_DSSP · GLOBAL_STATS
 ```
 
 Per OG (channels joined on OG id):
@@ -50,10 +52,11 @@ Per OG (channels joined on OG id):
 1. **ALIGN_AA** — `mafft --auto` on the AA fasta → `<og>.aln.fa`. *(Hydra: `module MAFFT`; hpc: mafft container.)*
 2. **BACKALIGN** — `cdskit backalign` maps the full AA alignment onto the CDS → in-frame codon alignment (before pruning, so codons stay consistent).
 3. **PRUNE_MSA** (`bin/prune_msa.py`) — drops AA columns with occupancy < `--occupancy`; applies the *same* columns ×3 to the codon alignment. Outputs: pruned AA MSA, pruned codon MSA, `msa_columns.tsv` (pruned_pos ↔ original_pos), occupancy per column.
-4. **Predictors** (all on *ungapped* AA sequences, mapped to the MSA later):
+4. **Predictors** (all on *ungapped* AA sequences except DSSP, mapped to the MSA later):
    - **B2BTOOLS** (container `slheidig/og_b2b_pca:latest`, all predictors) → long per-residue TSV (backbone, sidechain, helix, sheet, coil, ppII, earlyFolding, disoMine, agmata).
    - **AIUPRED** (new container, see §5) → per-residue disorder score (default mode; binding mode available via `ext.args`).
    - **IPC** (new container) → per-sequence pI (+ per-residue charge at pH 7, which is positional); pI repeated per residue row in the tables.
+   - **DSSP_RUN → DSSP_PARSE** (containers `slheidig/dssp3:2`, then the pandas image) — the first predictor that consumes **structures** rather than sequences: one predicted model per sequence at `<structure_dir>/<og>/<sequence_id>.pdb`. `mkdssp` gives 8-state secondary structure and absolute SASA; `bin/parse_dssp.py` adds RSA (Tien et al. 2013 max-ASA), Kyte–Doolittle hydropathy, surface hydrophobicity (`rsa × kd`) and the pLDDT read from the model's CA B-factors. Models cover exactly the fasta sequence, so the DSSP residue number is the ungapped `residue_index` directly.
    - **SPLIT_CUSTOM_PREDICTIONS** — runs **once**: streams the 1.9 GB CSV in chunks, splits rows by the `CK_########` prefix of `block_id` → one `<og>_custom.tsv` per OG, joined into the per-OG channel. (Note: `residue_index` there is 1-based ungapped.)
 5. **IQTREE** — GTR+G, 1000 UFBoot, on the **pruned codon alignment**, with outgroup-monophyly constraint built from `--outgroup_level` (partial outgroup sets OK; none → unconstrained). Publishes the **complete IQ-TREE native output**. *(Hydra: `module IQ-TREE`; hpc: container.)*
 6. **ROOT_TREE** (`bin/root_tree.py`, ete4, in the csubst container) — strip UFBoot labels, outgroup-root (two-step `set_outgroup`), midpoint fallback — split out from csubst_pipeline step 3.
@@ -80,6 +83,7 @@ results/
       b2btools/  native/ + b2btools.tsv
       aiupred/   native/ + aiupred.tsv
       ipc/       native/ + ipc.tsv
+      dssp/      native/ (per-sequence .dssp + plddt.tsv) + dssp.tsv
       custom/    <og>_custom.tsv
     evolution/
       iqtree/    native/            (full intermediates)
@@ -88,7 +92,8 @@ results/
       hyphy/     native/            (all JSONs + logs)
                  + <method>.persite.tsv, relax_summary.tsv, by_site.tsv
     <OG>_combined.tsv     ← one row per residue per sequence per pruned-MSA position
-    plots/
+    plots/                MSA heatmap, per-feature line plots, and with --dssp the
+                          secstructartist consensus cartoon + per-sequence SS view
   stats/                  global distributions, hotspot/RELAX/omega summaries, stats.tsv, warnings.tsv
 ```
 
