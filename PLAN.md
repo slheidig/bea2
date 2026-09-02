@@ -257,6 +257,10 @@ bea2/
 process including csubst and all five HyPhy methods. Bootstrap confirmed running
 (`Generating 1000 samples for ultrafast bootstrap`, `.contree` written).
 `--plot <og>,<og>` confirmed to produce figures for exactly the named families.
+The hydra module strings are verified by that run: `nxf_module_load` was called
+with `MAFFT/7.526-GCC-14.2.0-with-extensions` and `SciPy-bundle`+`matplotlib`,
+every such task exited 0 with no apptainer in its `.command.run`, and `PLOT_OG`
+produced its 26 PDFs — which needs matplotlib, pandas and numpy to have resolved.
 
 **Not yet validated.** Nothing has run beyond 8 small families. `GLOBAL_STATS`
 and `SPLIT_CUSTOM_PREDICTIONS` have never seen more than 8 OGs, and TREE's
@@ -279,8 +283,10 @@ invocations and `failed_tasks.sh`'s no-failure / `all` paths are untested.
 4. **OG-level batching** (`buffer(size: N)` so one task handles N OGs) would cut
    per-task overhead ~20x. Only worth it if the inode budget still does not fit
    after 1-3; costs resume granularity and per-OG retry.
-5. Hydra module strings (`MAFFT/7.526-GCC-14.2.0-with-extensions`,
-   `SciPy-bundle:matplotlib`) are still unverified against `module av`.
+5. `COLLECT` and `GLOBAL_STATS` were given containers back during the config
+   merge. The green run shows both work container-free on the SciPy-bundle
+   module, so `container = null` would save ~6 s of apptainer startup per
+   `COLLECT` task (~2.5 CPU-hours at 1500 families).
 6. csubst arity fixed at 2. Raising it would *increase* output, not reduce it
    (branch triplets are combinatorially more numerous), and would break both
    `select_significant_pairs.py` and `aggregate_csubst.py`, which hardcode

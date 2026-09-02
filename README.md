@@ -44,7 +44,7 @@ Profiles (all in `nextflow.config`; there is no `conf/`):
 | Profile | What it does |
 |---|---|
 | `local` | docker, nothing submitted to a scheduler — laptop testing |
-| `hydra` | VUB HPC: apptainer, Slurm for the nine heavy processes, MAFFT **module** for the alignment, and no container at all for the stdlib/module-covered steps. Set the module strings in the `hydra` profile |
+| `hydra` | VUB HPC: apptainer, Slurm for the nine heavy processes, `MAFFT/7.526-GCC-14.2.0-with-extensions` for the alignment and `SciPy-bundle:matplotlib` for the pandas/matplotlib steps, which then need no container at all. Both strings are verified on Hydra; change them in the `hydra` profile for another site |
 | `hpc` | any cluster: Slurm + singularity, **no host software required** — every process declares a container and this profile overrides none of them |
 
 By default only nine processes are submitted to Slurm; the eight seconds-long
