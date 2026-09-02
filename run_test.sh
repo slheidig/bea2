@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=nf-bea
-#SBATCH --time=1:00:00
+#SBATCH --time=0:30:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=10
 #SBATCH --mem=32G
 
 # The 'small' processes now run on the local executor, inside THIS allocation
 # (see conf/hydra.config); everything heavier goes to Slurm as job arrays.
-# conf/hydra.config reads --cpus-per-task/--mem back from Slurm, so raising them
-# here is all that is needed to run more short tasks concurrently.
+# Raise --cpus-per-task/--mem to run more of the short tasks concurrently.
 
 APPTAINERCACHE=$VSC_SCRATCH_VO_USER/.apptainer
 export APPTAINER_CACHEDIR=$APPTAINERCACHE
@@ -32,7 +31,15 @@ nextflow run pipeline.nf \
     --outdir      $house/nnresults \
     --plot        CK_00000105,CK_00001561 \
     --apptainercache $APPTAINERCACHE \
-    --csubst_reuse_iqtree -with-trace -resume
+    -resume
+
+# Do NOT add -with-trace / -with-report / -with-timeline: they inject a
+# ps-based metric collector INTO each container, and none of our images ship
+# procps, so every containerised task exits 1 before running anything
+# (nxf_trace_linux in .command.run: "Command 'ps' required by nextflow ...").
+# For the per-task record, query the driver's own log instead -- no container:
+#   nextflow log last -f name,status,exit,workdir -F "status=='FAILED'"
+#   ./failed_tasks.sh            # same thing, for the last or a named run
 
 # ---------------------------------------------------------------------------
 # New parameters
