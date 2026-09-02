@@ -1,34 +1,46 @@
 #!/usr/bin/env bash
-# Which tasks failed, and where to look. Replaces -with-trace, which cannot be
-# used here: it injects a ps-based collector into each container and none of our
-# images ship procps, so every containerised task would exit 1 immediately.
+# Per-process status tally and failure details for a run. Two things it stands
+# in for:
 #
-#   ./failed_tasks.sh              # the last run
+#   * the "[100%] n of m" table, which NXF_ANSI_LOG=false suppresses (that flag
+#     is set in run_test.sh because in a non-TTY the ANSI renderer writes every
+#     redraw frame -- it is what made the old slurm .out files 137 KB). Unset it
+#     to get the live table back at the cost of log size.
+#   * -with-trace, which cannot be used here at all: it injects a ps-based
+#     collector into each container and none of our images ship procps, so every
+#     containerised task would exit 1 immediately.
+#
+#   ./failed_tasks.sh              # tally + failures of the last run
 #   ./failed_tasks.sh <run_name>   # a named run (see: nextflow log)
-#   ./failed_tasks.sh <run_name> all   # every task, not only the failures
+#   ./failed_tasks.sh <run_name> all   # add the full per-task listing
 #
 # Reads the driver's own execution history, so no container is involved.
 set -euo pipefail
 
 run=${1:-last}
-what=${2:-failed}
-fields='name,status,exit,duration,workdir'
+what=${2:-}
+
+echo "== $run: tasks per process"
+nextflow log "$run" -f process,status 2>/dev/null \
+    | sort | uniq -c \
+    | awk '{printf "  %-26s %-8s %s\n", $2, $3, $1}'
 
 if [ "$what" = all ]; then
-    nextflow log "$run" -f "$fields"
-    exit 0
+    echo
+    echo "== all tasks"
+    nextflow log "$run" -f name,status,exit,duration,workdir
 fi
 
-out=$(nextflow log "$run" -f "$fields" -F "status=='FAILED'")
+out=$(nextflow log "$run" -f name,status,exit,duration,workdir -F "status=='FAILED'" 2>/dev/null || true)
 if [ -z "$out" ]; then
-    echo "no failed tasks in run '$run'"
+    echo
+    echo "no failed tasks"
     exit 0
 fi
 
-echo "$out"
 echo
-echo "affected processes:"
-echo "$out" | awk -F'\t' '{p=$1; sub(/ .*/,"",p); c[p]++} END{for (k in c) printf "  %-22s %d\n", k, c[k]}' | sort
+echo "== failures"
+echo "$out"
 
 # the first failure's stderr is usually the whole story
 first=$(echo "$out" | head -1 | awk -F'\t' '{print $NF}')

@@ -5,7 +5,6 @@
 
 process ALIGN_AA {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/alignment/native/mafft", mode: 'copy'
 
     input:
@@ -22,7 +21,6 @@ process ALIGN_AA {
 
 process PRUNE {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/alignment", mode: 'copy'
 
     input:

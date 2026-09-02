@@ -1,13 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=nf-bea
-#SBATCH --time=0:30:00
+#SBATCH --time=1:30:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=10
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
 
-# The 'small' processes now run on the local executor, inside THIS allocation
-# (see conf/hydra.config); everything heavier goes to Slurm as job arrays.
-# Raise --cpus-per-task/--mem to run more of the short tasks concurrently.
 
 APPTAINERCACHE=$VSC_SCRATCH_VO_USER/.apptainer
 export APPTAINER_CACHEDIR=$APPTAINERCACHE
@@ -30,16 +27,16 @@ nextflow run pipeline.nf \
     --structure_dir $house/testdata/structures \
     --outdir      $house/nnresults \
     --plot        CK_00000105,CK_00001561 \
-    --apptainercache $APPTAINERCACHE \
-    -resume
+    --apptainercache $APPTAINERCACHE 
 
 # Do NOT add -with-trace / -with-report / -with-timeline: they inject a
 # ps-based metric collector INTO each container, and none of our images ship
 # procps, so every containerised task exits 1 before running anything
 # (nxf_trace_linux in .command.run: "Command 'ps' required by nextflow ...").
 # For the per-task record, query the driver's own log instead -- no container:
-#   nextflow log last -f name,status,exit,workdir -F "status=='FAILED'"
-#   ./failed_tasks.sh            # same thing, for the last or a named run
+#   ./progress.sh          # the [n of m] table NXF_ANSI_LOG=false hides;
+#                          # rerun any time, reads files only (no JVM)
+#   ./failed_tasks.sh      # per-process tally + failure details (starts a JVM)
 
 # ---------------------------------------------------------------------------
 # New parameters
@@ -75,8 +72,8 @@ nextflow run pipeline.nf \
 #   #SBATCH --mem=48G
 # and add, to keep work/ off the project quota:
 #   export NXF_WORK=$VSC_SCRATCH_VO_USER/bea2_work
-# Consider --plot none (40k PDFs otherwise) and keep -with-trace: it is the
-# only record of which OGs hit errorStrategy 'ignore'.
+# Consider --plot none (40k PDFs otherwise), and use ./failed_tasks.sh
+# afterwards to find the OGs that hit errorStrategy 'ignore'.
 # ---------------------------------------------------------------------------
 
 #nextflow clean -f -before $(nextflow log -q | tail -n 1)

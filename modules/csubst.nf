@@ -14,7 +14,6 @@
 
 process CSUBST {
     tag "$og"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/evolution/csubst", mode: 'copy',
         pattern: '*.tsv'
     publishDir "${params.outdir}/ogs/${og}/evolution/csubst/native", mode: 'copy',

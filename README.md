@@ -39,7 +39,7 @@ nextflow run pipeline.nf \
     -resume
 ```
 
-Profiles: `local` (docker, laptop testing) · `hydra` (VUB HPC: Slurm + MAFFT/IQ-TREE **modules** + singularity — set the exact module strings in `conf/hydra.config`) · `hpc` (generic Slurm + singularity for everything).
+Profiles: `local` (docker, laptop testing) · `hydra` (VUB HPC: Slurm + MAFFT/IQ-TREE **modules** + singularity — set the exact module strings in the `hydra` profile of `nextflow.config`) · `hpc` (generic Slurm + singularity for everything).
 
 ## Inputs
 

@@ -8,7 +8,6 @@
 
 process MAP_TO_MSA {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/biophysics", mode: 'copy',
                saveAs: { f -> f.replaceFirst(/^mapped\//, '') }
 
@@ -34,7 +33,6 @@ process MAP_TO_MSA {
 
 process COLLECT {
     tag "$og"
-    label 'medium'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy', pattern: "${og}.by_site.*"
     publishDir "${params.outdir}/ogs/${og}", mode: 'copy', pattern: "${og}_combined.tsv"
 
@@ -60,7 +58,6 @@ process COLLECT {
 
 process PLOT_OG {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}", mode: 'copy'
 
     input:
@@ -81,7 +78,6 @@ process PLOT_OG {
 
 process PLOT_DSSP {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}", mode: 'copy', pattern: 'plots/*.pdf'
     // the consensus table is data, not a figure: it belongs with the other DSSP tables
     publishDir "${params.outdir}/ogs/${og}/biophysics/dssp", mode: 'copy',
@@ -107,7 +103,6 @@ process PLOT_DSSP {
 // they reach this process, so the command line stays a fixed three paths
 // instead of one per OG.
 process GLOBAL_STATS {
-    label 'highmem_single'
     publishDir "${params.outdir}", mode: 'copy'
 
     input:

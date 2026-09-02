@@ -11,7 +11,6 @@
 // labels to <name>/<bootstrap>, which root_tree.py cannot parse.
 
 process MAKE_FOREGROUND {
-    label 'small'
     publishDir "${params.outdir}/foreground", mode: 'copy'
 
     input:
@@ -32,7 +31,6 @@ process MAKE_FOREGROUND {
 
 process TREE {
     tag "$og"
-    label 'highmem_single'
     publishDir "${params.outdir}/ogs/${og}/evolution/iqtree/native", mode: 'copy',
         pattern: "${og}.{treefile,contree,iqtree,log}"
     publishDir "${params.outdir}/ogs/${og}/evolution", mode: 'copy',

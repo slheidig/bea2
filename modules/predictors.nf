@@ -6,7 +6,6 @@
 
 process B2BTOOLS {
     tag "$og"
-    label 'medium'
     publishDir "${params.outdir}/ogs/${og}/biophysics/b2b/native", mode: 'copy'
 
     input:
@@ -23,7 +22,6 @@ process B2BTOOLS {
 
 process AIUPRED {
     tag "$og"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/biophysics/aiupred/native", mode: 'copy'
 
     input:
@@ -48,7 +46,6 @@ process AIUPRED {
 
 process IPC {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/biophysics/ipc/native", mode: 'copy'
 
     input:
@@ -70,7 +67,6 @@ process IPC {
 // published, instead of one file per sequence.
 process DSSP {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/biophysics/dssp/native", mode: 'copy'
 
     input:
@@ -102,7 +98,6 @@ process DSSP {
 }
 
 process SPLIT_CUSTOM_PREDICTIONS {
-    label 'highmem_single'
     publishDir "${params.outdir}/custom_predictions", mode: 'copy', pattern: 'per_og/unmatched.tsv'
 
     input:

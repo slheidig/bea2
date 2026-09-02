@@ -5,7 +5,6 @@
 
 process HYPHY_WHOLETREE {
     tag "$og:$method"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy/native", mode: 'copy',
         pattern: '*.{json,log}'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy',
@@ -33,7 +32,6 @@ process HYPHY_WHOLETREE {
 
 process HYPHY_FOREGROUND {
     tag "$og:$method"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy/native", mode: 'copy',
         pattern: '*.{json,log,nwk}'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy',
