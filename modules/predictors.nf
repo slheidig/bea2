@@ -6,8 +6,7 @@
 
 process B2BTOOLS {
     tag "$og"
-    label 'medium'
-    publishDir "${params.outdir}/ogs/${og}/biophysics/b2btools/native", mode: 'copy'
+    publishDir "${params.outdir}/ogs/${og}/biophysics/b2b/native", mode: 'copy'
 
     input:
     tuple val(og), path(aa)
@@ -23,7 +22,6 @@ process B2BTOOLS {
 
 process AIUPRED {
     tag "$og"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/biophysics/aiupred/native", mode: 'copy'
 
     input:
@@ -38,7 +36,7 @@ process AIUPRED {
     """
     aiupred -i ${aa} -o aiupred_raw.tsv --force-cpu ${bind}
 
-    # AIUPred writes a '#' banner, then '#>id' per sequence followed by 'position residue score...' rows. 
+    # AIUPred writes a '#' banner, then '#>id' per sequence followed by 'position residue score...' rows.
     printf 'sequence_id\\tresidue_index\\tresidue\\t${cols}\\n' > ${og}_aiupred.tsv
     awk '/^#>/ { id = substr(\$0, 3); next }
          /^#/  { next }
@@ -48,7 +46,6 @@ process AIUPRED {
 
 process IPC {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/biophysics/ipc/native", mode: 'copy'
 
     input:
@@ -65,16 +62,20 @@ process IPC {
 
 // DSSP is the one predictor that reads structures instead of sequences:
 // one predicted model per sequence, in ${params.structure_dir}/<og>/<sequence_id>.pdb.
-process DSSP_RUN {
+// mkdssp and the parser are fused (the dssp3 image carries python3), which keeps
+// the per-sequence .dssp files inside the task: only the concatenated archive is
+// published, instead of one file per sequence.
+process DSSP {
     tag "$og"
-    label 'small'
     publishDir "${params.outdir}/ogs/${og}/biophysics/dssp/native", mode: 'copy'
 
     input:
     tuple val(og), path(structdir)
 
     output:
-    tuple val(og), path('dssp'), path("${og}_plddt.tsv"), emit: raw
+    tuple val(og), val('dssp'), path("${og}_dssp.tsv"), emit: pred
+    path "${og}_plddt.tsv"
+    path "${og}.dssp.txt.gz"
 
     script:
     """
@@ -86,28 +87,17 @@ process DSSP_RUN {
         # pLDDT = the CA B-factor of each residue (cols 61-66 of the ATOM record)
         awk -v id=\$id 'substr(\$0,1,4)=="ATOM" && substr(\$0,13,4)==" CA " { print id "\\t" substr(\$0,23,4)+0 "\\t" substr(\$0,61,6)+0 }' \$pdb >> ${og}_plddt.tsv
     done
-    """
-}
 
-process DSSP_PARSE {
-    tag "$og"
-    label 'small'
-    publishDir "${params.outdir}/ogs/${og}/biophysics/dssp/native", mode: 'copy'
+    parse_dssp.py --dssp-dir dssp --plddt ${og}_plddt.tsv --out ${og}_dssp.tsv
 
-    input:
-    tuple val(og), path(dsspdir), path(plddt)
-
-    output:
-    tuple val(og), val('dssp'), path("${og}_dssp.tsv"), emit: pred
-
-    script:
-    """
-    parse_dssp.py --dssp-dir ${dsspdir} --plddt ${plddt} --out ${og}_dssp.tsv
+    for f in dssp/*.dssp ; do
+        printf '##### %s\\n' "\$(basename \$f .dssp)"
+        cat "\$f"
+    done | gzip -c > ${og}.dssp.txt.gz
     """
 }
 
 process SPLIT_CUSTOM_PREDICTIONS {
-    label 'highmem_single'
     publishDir "${params.outdir}/custom_predictions", mode: 'copy', pattern: 'per_og/unmatched.tsv'
 
     input:

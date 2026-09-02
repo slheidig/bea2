@@ -39,7 +39,18 @@ nextflow run pipeline.nf \
     -resume
 ```
 
-Profiles: `local` (docker, laptop testing) · `hydra` (VUB HPC: Slurm + MAFFT/IQ-TREE **modules** + singularity — set the exact module strings in `conf/hydra.config`) · `hpc` (generic Slurm + singularity for everything).
+Profiles (all in `nextflow.config`; there is no `conf/`):
+
+| Profile | What it does |
+|---|---|
+| `local` | docker, nothing submitted to a scheduler — laptop testing |
+| `hydra` | VUB HPC: apptainer, Slurm for the nine heavy processes, `MAFFT/7.526-GCC-14.2.0-with-extensions` for the alignment and `SciPy-bundle:matplotlib` for the pandas/matplotlib steps, which then need no container at all. Both strings are verified on Hydra; change them in the `hydra` profile for another site |
+| `hpc` | any cluster: Slurm + singularity, **no host software required** — every process declares a container and this profile overrides none of them |
+
+By default only nine processes are submitted to Slurm; the eight seconds-long
+ones run on the **local executor**, inside the driver's own allocation, because a
+scheduler round-trip costs more than the work. So give the driver job real
+cpus/memory — see [Running at scale](#running-at-scale).
 
 ## Inputs
 
@@ -62,19 +73,36 @@ results/
   ogs/<OG>/
     alignment/            native mafft out, codon MSA, pruned MSAs, msa_columns.tsv
     biophysics/<tool>/    native/ (raw tool output) + <og>_<tool>_mapped.tsv
+                          tools: b2b, aiupred, ipc, dssp, custom
     evolution/
-      iqtree/native/      full IQ-TREE output
-      csubst/native/      search/ inspect/ csubst_iqtree/ (FULL IQ-TREE intermediates,
-                          .state ancestral reconstructions — csubst has/keeps everything)
+      iqtree/native/      .treefile .contree .iqtree .log
+      csubst/native/      search/ (csubst_b, csubst_cb_2, csubst_cb_stats, log,
+                          sites/<pair>/csubst.tsv)
       csubst/             <og>.branch_pairs.tsv .sites.tsv .hotspots.tsv (convergent+divergent)
       hyphy/native/       all JSONs + logs        hyphy/  per-method persite + by_site tables
       <og>.rooted.nwk
     <og>_combined.tsv     ← THE table: row = residue per sequence per pruned-MSA position
-    plots/                MSA heatmap + per-feature category line plots with hotspot overlay
+    plots/                only for OGs selected with --plot (see below)
   stats/                  global distributions & summaries over all OGs
   foreground/             foreground.tsv, strain lists, cleaned categories
-  pipeline_info/          report / timeline / trace
 ```
+
+Output volume is tuned for 1500 families — measured against the earlier layout,
+**365 → 70 files per OG**. What changed:
+
+- `--plot all | none | <og>,<og>` selects which families get figures; 27 PDFs per
+  OG is ~40,000 files at scale. Plots live in their own processes, so changing
+  `--plot` re-runs only the plot tasks and leaves every cached table intact under
+  `-resume`. `./replot_og.sh <results_dir> <og>…` regenerates figures from
+  published output if `-resume` will not cooperate.
+- Only `csubst.tsv` is kept from each `search/sites/<pair>/` directory — the other
+  seven files per pair are never read by the pipeline. `--publish_csubst_native`
+  adds `inspect/` and csubst's own `csubst_iqtree/` back. Per-pair figures are off
+  by default (`--csubst_site_plots`); `replot_og.sh` regenerates those too.
+- DSSP publishes one concatenated `<og>.dssp.txt.gz` instead of a `.dssp` file per
+  sequence, and IQ-TREE publishes four files instead of its whole prefix set.
+- There is no `pipeline_info/`: `-with-trace`/`-with-report`/`-with-timeline`
+  cannot be used here (see [Monitoring](#monitoring)).
 
 ## Containers
 
@@ -115,7 +143,7 @@ converts automatically, picking the amd64 entry from the manifest.
 
 **AIUPred**: the `AIUPRED` process calls the `aiupred` CLI in the authors' image directly, with `--force-cpu` (the nodes have no GPU) and `-b`, which adds a Binding column next to Disorder in the same pass — so `aiupred_disorder` and `aiupred_binding` both come out of one run. Set `--aiupred_binding false` for disorder only. The CLI writes a `#` banner, then `#>id` per sequence followed by `position residue score...` rows; an awk step in the process pulls each id down onto its rows to produce the flat predictor table. Note the sequence headers are `#>id`, not `>id`. For the official IPC CLI instead of the built-in pKa computation, see `docker/ipc/Dockerfile`.
 
-**DSSP** (`--dssp --structure_dir <dir>`, off by default): the only predictor that reads structures instead of sequences. It expects one predicted model per sequence at `<structure_dir>/<og>/<sequence_id>.pdb` — the layout ESMFold writes, single chain, residues numbered 1..N, pLDDT in the B-factor column. `DSSP_RUN` runs `mkdssp` over the OG's models and pulls the CA B-factors into a pLDDT table; `DSSP_PARSE` turns both into the flat predictor table. Because every sequence here has a model whose sequence matches the fasta exactly, the DSSP residue number is used directly as `residue_index` — none of SIMSApiper's sequence-reconciliation logic is needed. Columns: `dssp_ss8` (8-state — DSSP's H B E G I T S, with unassigned written as `X` as in SIMSApiper, so it reads as neither an alignment gap nor a loop), `dssp_ss3` (H/E/L — helix `HGI`, sheet `EB`, loop `TS` + unassigned; the same three buckets SIMSApiper uses), `dssp_acc` (SASA in Å²), `dssp_rsa` (ACC / max-ASA, Tien et al. 2013), `dssp_kd` (Kyte–Doolittle), `dssp_surface_hydrophobicity` (`rsa × kd` — hydrophobic *and* exposed), `dssp_plddt`. The two SS columns are strings, so `PLOT_OG` and `GLOBAL_STATS` skip them — `PLOT_DSSP` below plots them instead.
+**DSSP** (`--dssp --structure_dir <dir>`, off by default): the only predictor that reads structures instead of sequences. It expects one predicted model per sequence at `<structure_dir>/<og>/<sequence_id>.pdb` — the layout ESMFold writes, single chain, residues numbered 1..N, pLDDT in the B-factor column. The `DSSP` process runs `mkdssp` over the OG's models, pulls the CA B-factors into a pLDDT table, and turns both into the flat predictor table — all in one task, since the dssp3 image carries python3 as well as mkdssp. The per-sequence `.dssp` files therefore stay inside the task and only one concatenated `<og>.dssp.txt.gz` is published. Because every sequence here has a model whose sequence matches the fasta exactly, the DSSP residue number is used directly as `residue_index` — none of SIMSApiper's sequence-reconciliation logic is needed. Columns: `dssp_ss8` (8-state — DSSP's H B E G I T S, with unassigned written as `X` as in SIMSApiper, so it reads as neither an alignment gap nor a loop), `dssp_ss3` (H/E/L — helix `HGI`, sheet `EB`, loop `TS` + unassigned; the same three buckets SIMSApiper uses), `dssp_acc` (SASA in Å²), `dssp_rsa` (ACC / max-ASA, Tien et al. 2013), `dssp_kd` (Kyte–Doolittle), `dssp_surface_hydrophobicity` (`rsa × kd` — hydrophobic *and* exposed), `dssp_plddt`. The two SS columns are strings, so `PLOT_OG` and `GLOBAL_STATS` skip them — `PLOT_DSSP` below plots them instead.
 
 **Secondary-structure plots** (`PLOT_DSSP`, container `slheidig/simsapiper:06`, which carries `secstructartist`): `bin/plot_dssp_ss.py` adapts SIMSApiper's `2Dstructure_plot.py` / `DSSPcodesMSA_plot.py` / `dssp_seqview_plot.py` to the pruned-MSA coordinates and splits everything **by category**, which is what bea2 compares. Per OG:
 
@@ -130,13 +158,67 @@ A position gets a consensus H or E when at least `--ss_consensus` (default 0.5) 
 1. Write `bin/run_mytool.py` emitting the standard long format: `sequence_id  residue_index  residue  <features>` (1-based ungapped index).
 2. Add a process in `modules/predictors.nf` emitting `tuple(og, 'mytool', tsv)`.
 3. `preds = preds.mix(MYTOOL.out.pred)` in `pipeline.nf`. Mapping, combined table, plots and global stats pick it up automatically.
+4. Add a `withName: 'MYTOOL'` block in `nextflow.config`. **One block per process, complete** — container, and if it needs a Slurm job also executor, array, cpus, memory, time. Do not add a `label`: a `withLabel:`/`withName:` block does not merge with a same-named block elsewhere, it replaces it wholesale, which is how every resource setting once got silently dropped.
+5. If the predictor is toggleable, add it to the `n_pred` count in `pipeline.nf` so `MAP_TO_MSA`'s `groupTuple(size:)` still knows how many predictors to expect.
 
-## Sizing (1500 OGs × 54 seqs, 40 cores)
+## Running at scale
 
-Throughput-bound, not memory-bound: ~4 GB RAM/core is comfortable (peak concurrent use 60–100 GB). Aggregate ≈ 1–1.5 CPU-h per OG, dominated by MEME/RELAX/csubst → **≈ 2–3 days wall-time on 40 cores**. For a faster first pass: `--hyphy_methods FEL --hyphy_fg_methods relax`. Failed tasks retry twice with doubled resources, then are ignored (check `results/pipeline_info/trace_*.txt` for skipped OGs).
+Measured on one complete 8-OG run (nothing cached), against the earlier pipeline:
+
+| | 8 OGs | projected 1500 OGs |
+|---|---|---|
+| tasks | 208 → 127 | 39,000 → ~22,500 |
+| **sbatch calls** | 208 → **10** | 39,000 → **~300** |
+| files per OG | 365 → 70 | — |
+| inodes (whole run) | 3,616 → 974 | — |
+
+Three things compound: 26 → 15 tasks per OG, five of those fifteen no longer
+touch Slurm, and the rest are batched into job arrays. The old
+`submitRateLimit = '10 sec'` would have spent **108 hours purely submitting**
+39,000 jobs.
+
+Per-task resources are set per process in `nextflow.config`, each block complete
+with executor, array size, cpus, memory, time and container. Peak RSS from
+`sacct`: TREE 238 MB, CSUBST 472 MB, HyPhy ≤278 MB — the memory consumers are the
+**predictors** (AIUPred 1.9 GB, the predictions splitter 2.9 GB, b2bTools 1.0 GB),
+not the phylogenetics. Times are 2× the measured maximum; since `time` is
+`X * task.attempt`, a retry doubles it again.
+
+Knobs: `--array_size 0` disables array batching · `--heavy_executor local` runs
+everything in one allocation · `--hyphy_methods FEL --hyphy_fg_methods relax` for
+a faster first pass.
+
+**The driver job** must outlive the whole run and holds task metadata for
+~22,500 tasks. It also runs the local-executor tasks, so its cores cap how many
+of those run concurrently. For a proteome run: days of walltime, ~8 cores, 16 GB,
+`NXF_OPTS='-Xms1g -Xmx8g'`, and `NXF_ANSI_LOG=false` (otherwise the slurm `.out`
+fills with ANSI redraw frames — that is what made them 137 KB). Expect Slurm's job
+report to flag "suspiciously low CPU time": a workflow driver is wait-bound by
+design, and the real compute is in the child jobs.
+
+Failed tasks retry once with doubled resources, then are **ignored** — individual
+families are expected to fail and that must never end a 1500-family run.
+
+## Monitoring
+
+`-with-trace`, `-with-report` and `-with-timeline` **cannot be used**: Nextflow
+injects a `ps`-based metric collector *into each container*, and five of the seven
+images ship no `procps`, so every containerised task exits 1 before running
+anything. Two helpers replace them — both read files only, no JVM, no container,
+safe on a login node and while the pipeline is running:
+
+```bash
+./progress.sh          # per-process [n of m] table that NXF_ANSI_LOG=false hides
+./failed_tasks.sh      # per-process tally + failures + first failure's stderr
+NXF_LOG=.nextflow.log.1 ./progress.sh    # an earlier run
+```
+
+`progress.sh` reads `.nextflow.log` plus `work/*/*/.exitcode`; `failed_tasks.sh`
+queries `nextflow log` (which starts a JVM, so it is the heavier of the two).
 
 ## Tips
 
 - Rerun after a failure/parameter change: append `-resume`.
 - Different clustering: `--category_column temp_cat --outdir results_strict` (with `-resume`, alignment/trees/predictors are reused; only foreground-dependent steps rerun).
-- csubst arity is fixed at 2 (pairs); raise inside `modules/csubst.nf` if needed.
+- csubst arity is fixed at 2 (pairs). Raising it would *increase* output rather than reduce it, and would break `select_significant_pairs.py` and `aggregate_csubst.py`, which assume `csubst_cb_2.tsv` and two-id pair names.
+- Do not add `-asr`/`--rate` to the IQ-TREE call to save csubst its own run: csubst already uses `-te` on the rooted tree (fixed topology, no search) and relabels it before reconstructing states, so an external `.state` will not line up. Details in `modules/tree.nf`.

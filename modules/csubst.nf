@@ -1,14 +1,25 @@
 // csubst convergence/divergence analysis (one process per OG).
-// Publishes the COMPLETE native output, including csubst_iqtree/ — the full
-// IQ-TREE intermediate data (ancestral .state files etc.) csubst generates.
+//
+// Only csubst.tsv is read from each search/sites/<branch pair>/ directory
+// (see aggregate_csubst.py); the other seven files per pair are unread, so
+// they are neither declared nor published. The full native tree, including
+// inspect/ and csubst's own csubst_iqtree/, is published only under
+// --publish_csubst_native.
+//
+// csubst runs its own IQ-TREE to reconstruct ancestral states, but it already
+// does so with -te on the rooted tree from TREE: fixed topology, no tree
+// search, no bootstrap (~13% of the tree search's wall time). It relabels that
+// tree itself first, so an externally supplied .state would not match its node
+// numbering -- do not try to feed it one.
 
 process CSUBST {
     tag "$og"
-    label 'large'
-    publishDir "${params.outdir}/ogs/${og}/evolution/csubst/native", mode: 'copy',
-        pattern: '{search,inspect,csubst_iqtree}/**'
     publishDir "${params.outdir}/ogs/${og}/evolution/csubst", mode: 'copy',
         pattern: '*.tsv'
+    publishDir "${params.outdir}/ogs/${og}/evolution/csubst/native", mode: 'copy',
+        pattern: 'search/**'
+    publishDir "${params.outdir}/ogs/${og}/evolution/csubst/native", mode: 'copy',
+        pattern: '{inspect,csubst_iqtree}/**', enabled: params.publish_csubst_native
 
     input:
     tuple val(og), path(codon), path(rooted)
@@ -17,9 +28,10 @@ process CSUBST {
     output:
     tuple val(og), path("${og}.branch_pairs.tsv"), path("${og}.sites.tsv"), path("${og}.hotspots.tsv"), emit: tables
     tuple val(og), path("${og}.hotspots.tsv"), emit: hotspots
-    path 'search/**'
-    path 'inspect/**',       optional: true
-    path 'csubst_iqtree/**', optional: true
+    path 'search/csubst*'
+    path 'search/sites/*/csubst.tsv',           optional: true
+    path 'inspect/**',                          optional: true
+    path 'csubst_iqtree/**',                    optional: true
 
     script:
     def plots = params.csubst_site_plots ? 'yes' : 'no'

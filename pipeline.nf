@@ -18,12 +18,12 @@
 
 nextflow.enable.dsl = 2
 
-include { ALIGN_AA; BACKALIGN; PRUNE_MSA } from './modules/align'
-include { MAKE_FOREGROUND; MAKE_CONSTRAINT; IQTREE; ROOT_TREE } from './modules/tree'
+include { ALIGN_AA; PRUNE } from './modules/align'
+include { MAKE_FOREGROUND; TREE } from './modules/tree'
 include { CSUBST } from './modules/csubst'
-include { HYPHY_WHOLETREE; HYPHY_FOREGROUND; HYPHY_BYSITE } from './modules/hyphy'
-include { B2BTOOLS; AIUPRED; IPC; DSSP_RUN; DSSP_PARSE; SPLIT_CUSTOM_PREDICTIONS } from './modules/predictors'
-include { MAP_TO_MSA; COMBINE_TABLE; PLOT_OG; PLOT_DSSP; GLOBAL_STATS } from './modules/collect'
+include { HYPHY_WHOLETREE; HYPHY_FOREGROUND } from './modules/hyphy'
+include { B2BTOOLS; AIUPRED; IPC; DSSP; SPLIT_CUSTOM_PREDICTIONS } from './modules/predictors'
+include { MAP_TO_MSA; COLLECT; PLOT_OG; PLOT_DSSP; GLOBAL_STATS } from './modules/collect'
 
 log.info """
 ================================================================================
@@ -49,6 +49,9 @@ log.info """
    hyphy (--hyphy)                   : ${params.hyphy}
    hyphy methods (--hyphy_methods)   : ${params.hyphy_methods}
    hyphy fg methods (--hyphy_fg_methods): ${params.hyphy_fg_methods}
+ OUTPUT
+   plots (--plot)                    : ${params.plot}
+   publish csubst native (--publish_csubst_native): ${params.publish_csubst_native}
 ================================================================================
 """
 
@@ -57,6 +60,14 @@ workflow {
         error "Required: --aa_dir, --nuc_dir, --categories"
     if (params.dssp && !params.structure_dir)
         error "--dssp requires --structure_dir (<structure_dir>/<og>/<sequence_id>.pdb)"
+
+    // ---- --plot all | none | <og>[,<og>...] --------------------------------
+    def plot_mode = params.plot.toString().trim()
+    def plot_all  = plot_mode.equalsIgnoreCase('all')
+    def plot_none = plot_mode.equalsIgnoreCase('none')
+    def plot_set  = (plot_all || plot_none) ? [] : plot_mode.tokenize(',').collect { it.trim() }.findAll { it }
+    if (!plot_all && !plot_none && !plot_set)
+        error "--plot must be 'all', 'none' or a comma-separated list of OG ids"
 
     // ---- pair AA + CDS fastas by OG id (filename before the first dot) -----
     aa_ch  = Channel.fromPath("${params.aa_dir}/*.{fa,fasta,faa}", checkIfExists: true)
@@ -75,23 +86,20 @@ workflow {
     // ---- alignment + canonical pruned MSA -----------------------------------
     ALIGN_AA(ogs.map { og, aa, nuc -> tuple(og, aa) })
     aln = ALIGN_AA.out.aln
-    BACKALIGN(aln.join(ogs.map { og, aa, nuc -> tuple(og, nuc) }))
-    PRUNE_MSA(aln.join(BACKALIGN.out.codon))
-    pruned_aa    = PRUNE_MSA.out.aa
-    pruned_codon = PRUNE_MSA.out.codon
-    columns      = PRUNE_MSA.out.columns
+    PRUNE(aln.join(ogs.map { og, aa, nuc -> tuple(og, nuc) }))
+    pruned_aa    = PRUNE.out.aa
+    pruned_codon = PRUNE.out.codon
+    columns      = PRUNE.out.columns
 
     // ---- evolutionary analyses ----------------------------------------------
     hotspots_ch   = Channel.empty()   // (og, hotspots.tsv)
     csubst_tables = Channel.empty()   // (og, branch_pairs, sites, hotspots)
-    bysite_ch     = Channel.empty()   // (og, by_site.tsv)
+    persite_ch    = Channel.empty()   // (og, persite.tsv)
     relax_ch      = Channel.empty()   // (og, relax.tsv)
 
     if (params.csubst || params.hyphy) {
-        MAKE_CONSTRAINT(aln, og_strains)
-        IQTREE(pruned_codon.join(MAKE_CONSTRAINT.out.files))
-        ROOT_TREE(IQTREE.out.treefile, og_strains)
-        rooted = ROOT_TREE.out.rooted
+        TREE(aln.join(pruned_codon), og_strains)
+        rooted = TREE.out.rooted
         evo_in = pruned_codon.join(rooted)   // (og, codon, rooted)
 
         if (params.csubst) {
@@ -104,10 +112,8 @@ workflow {
             fg_methods = Channel.fromList(params.hyphy_fg_methods.tokenize(',').collect { it.trim() }.findAll { it })
             HYPHY_WHOLETREE(evo_in.combine(methods))
             HYPHY_FOREGROUND(evo_in.combine(fg_methods), fg_strains)
-            relax_ch = HYPHY_FOREGROUND.out.relax
-            persite  = HYPHY_WHOLETREE.out.persite.mix(HYPHY_FOREGROUND.out.persite)
-            HYPHY_BYSITE(persite.groupTuple().join(columns))
-            bysite_ch = HYPHY_BYSITE.out.table
+            relax_ch   = HYPHY_FOREGROUND.out.relax
+            persite_ch = HYPHY_WHOLETREE.out.persite.mix(HYPHY_FOREGROUND.out.persite)
         }
     }
 
@@ -119,9 +125,8 @@ workflow {
     if (params.aiupred)  { AIUPRED(aa_in);  preds = preds.mix(AIUPRED.out.pred) }
     if (params.ipc)      { IPC(aa_in);      preds = preds.mix(IPC.out.pred) }
     if (params.dssp) {
-        DSSP_RUN(ogs.map { og, aa, nuc -> tuple(og, file("${params.structure_dir}/${og}", checkIfExists: true)) })
-        DSSP_PARSE(DSSP_RUN.out.raw)
-        preds = preds.mix(DSSP_PARSE.out.pred)
+        DSSP(ogs.map { og, aa, nuc -> tuple(og, file("${params.structure_dir}/${og}", checkIfExists: true)) })
+        preds = preds.mix(DSSP.out.pred)
     }
     if (params.predictions_csv) {
         SPLIT_CUSTOM_PREDICTIONS(Channel.fromPath(params.predictions_csv, checkIfExists: true))
@@ -130,45 +135,52 @@ workflow {
         preds = preds.mix(custom)
     }
 
-    // ---- map every predictor onto the pruned MSA ----------------------------
-    MAP_TO_MSA(preds.combine(aln.join(columns), by: 0))
+    // ---- map every predictor of an OG onto the pruned MSA in one task -------
+    // size: lets each OG start as soon as its own predictors are done instead of
+    // waiting for all of them; remainder: keeps OGs whose predictors were ignored
+    n_pred = [params.b2btools, params.aiupred, params.ipc, params.dssp,
+              params.predictions_csv as boolean].count { it }
+    MAP_TO_MSA(preds.groupTuple(size: n_pred, remainder: true).join(aln.join(columns)))
     mapped_grouped = MAP_TO_MSA.out.mapped
-        .map { og, tool, f -> tuple(og, f) }
-        .groupTuple()   // (og, [mapped tsvs])
 
-    // ---- per-OG combined table + plots --------------------------------------
-    combine_in = mapped_grouped
-        .join(hotspots_ch, remainder: true)
-        .join(bysite_ch, remainder: true)
+    // ---- per-OG combined table (with the hyphy by-site table folded in) ----
+    collect_in = mapped_grouped
         .join(columns)
-        .filter { og, m, hs, bs, col -> m }
-        .map { og, m, hs, bs, col -> tuple(og, m, hs ?: [], bs ?: [], col) }
-    COMBINE_TABLE(combine_in, cats_clean)
+        .join(hotspots_ch,            remainder: true)
+        .join(persite_ch.groupTuple(), remainder: true)
+        .filter { it[1] }
+        .map { og, m, col, hs, ps -> tuple(og, m, col, hs ?: [], ps ?: []) }
+    COLLECT(collect_in, cats_clean)
 
+    // ---- per-OG plots (subset with --plot) ----------------------------------
     plot_in = mapped_grouped
         .join(pruned_aa)
         .join(hotspots_ch, remainder: true)
-        .filter { og, m, aln_p, hs -> m && aln_p }
+        .filter { it[1] && it[2] && (plot_all || (!plot_none && it[0] in plot_set)) }
         .map { og, m, aln_p, hs -> tuple(og, m, aln_p, hs ?: []) }
     PLOT_OG(plot_in, cats_clean)
 
     // secondary-structure cartoon + per-sequence view (secstructartist)
     if (params.dssp) {
-        ss_in = MAP_TO_MSA.out.mapped
-            .filter { og, tool, f -> tool == 'dssp' }
-            .map { og, tool, f -> tuple(og, f) }
+        ss_in = MAP_TO_MSA.out.dssp
             .join(hotspots_ch, remainder: true)
-            .filter { og, m, hs -> m }
+            .filter { it[1] && (plot_all || (!plot_none && it[0] in plot_set)) }
             .map { og, m, hs -> tuple(og, m, hs ?: []) }
         PLOT_DSSP(ss_in, cats_clean)
     }
 
     // ---- global statistics over all OGs --------------------------------------
-    GLOBAL_STATS(
-        COMBINE_TABLE.out.table.map { it[1] }.collect(),
-        relax_ch.map { it[1] }.collect().ifEmpty([]),
-        csubst_tables.map { it[1] }.collect().ifEmpty([])
-    )
+    // concatenated driver-side: GLOBAL_STATS gets three paths regardless of OG count
+    combined_all = COLLECT.out.table.map { it[1] }
+        .collectFile(name: 'combined_all.tsv', keepHeader: true, skip: 1, sort: true)
+    relax_all = relax_ch.map { it[1] }
+        .collectFile(name: 'relax_all.tsv', keepHeader: true, skip: 1, sort: true)
+        .ifEmpty(file("${projectDir}/assets/NO_RELAX"))
+    pairs_all = csubst_tables.map { it[1] }
+        .collectFile(name: 'branch_pairs_all.tsv', keepHeader: true, skip: 1, sort: true)
+        .ifEmpty(file("${projectDir}/assets/NO_PAIRS"))
+
+    GLOBAL_STATS(combined_all, relax_all, pairs_all)
 }
 
 workflow.onComplete {

@@ -5,7 +5,6 @@
 
 process HYPHY_WHOLETREE {
     tag "$og:$method"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy/native", mode: 'copy',
         pattern: '*.{json,log}'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy',
@@ -33,7 +32,6 @@ process HYPHY_WHOLETREE {
 
 process HYPHY_FOREGROUND {
     tag "$og:$method"
-    label 'large'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy/native", mode: 'copy',
         pattern: '*.{json,log,nwk}'
     publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy',
@@ -84,20 +82,5 @@ process HYPHY_FOREGROUND {
         """
 }
 
-process HYPHY_BYSITE {
-    tag "$og"
-    label 'small'
-    publishDir "${params.outdir}/ogs/${og}/evolution/hyphy", mode: 'copy'
-
-    input:
-    tuple val(og), path(persite), path(columns)
-
-    output:
-    tuple val(og), path("${og}.by_site.tsv"), emit: table
-    path "${og}.by_site.png", optional: true
-
-    script:
-    """
-    hyphy_by_site.py --og ${og} --columns ${columns} --persite ${persite} --plot yes
-    """
-}
+// The per-site tables are folded into COLLECT (modules/collect.nf) so that the
+// by-site step does not cost its own scheduler round-trip.

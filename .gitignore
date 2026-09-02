@@ -8,4 +8,7 @@ __pycache__/
 .apptainer/
 slurm*
 testdata/
-tmp/
+tmp/trace-*.txt
+report-*.html
+timeline-*.html
+dag-*.html
