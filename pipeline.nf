@@ -46,7 +46,6 @@ log.info """
    dssp (--dssp)                     : ${params.dssp}
    structures (--structure_dir)      : ${params.structure_dir}
    csubst (--csubst)                 : ${params.csubst}
-   csubst reuses IQ-TREE (--csubst_reuse_iqtree): ${params.csubst_reuse_iqtree}
    hyphy (--hyphy)                   : ${params.hyphy}
    hyphy methods (--hyphy_methods)   : ${params.hyphy_methods}
    hyphy fg methods (--hyphy_fg_methods): ${params.hyphy_fg_methods}
@@ -61,10 +60,6 @@ workflow {
         error "Required: --aa_dir, --nuc_dir, --categories"
     if (params.dssp && !params.structure_dir)
         error "--dssp requires --structure_dir (<structure_dir>/<og>/<sequence_id>.pdb)"
-    // csubst reconstructs ancestral states under its own default model; reusing
-    // our IQ-TREE run is only valid when we ran the same model.
-    if (params.csubst_reuse_iqtree && params.iqtree_model != 'ECMK07+F+R4')
-        error "--csubst_reuse_iqtree requires --iqtree_model 'ECMK07+F+R4' (csubst's default), got '${params.iqtree_model}'"
 
     // ---- --plot all | none | <og>[,<og>...] --------------------------------
     def plot_mode = params.plot.toString().trim()
@@ -108,7 +103,7 @@ workflow {
         evo_in = pruned_codon.join(rooted)   // (og, codon, rooted)
 
         if (params.csubst) {
-            CSUBST(evo_in.join(TREE.out.asr), fg_file)
+            CSUBST(evo_in, fg_file)
             csubst_tables = CSUBST.out.tables
             hotspots_ch   = CSUBST.out.hotspots
         }

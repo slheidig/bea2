@@ -3,11 +3,14 @@
 # pipeline would. Use it for QC on families that ran with --plot none, or when
 # -resume will not reuse the cached tables.
 #
-#   bin/replot_og.sh <results_dir> <og> [<og> ...]
+#   ./replot_og.sh <results_dir> <og> [<og> ...]
 #
 # Reads only published output. Writes into <results_dir>/ogs/<og>/plots/.
-# csubst per-pair figures are regenerated too when the csubst native output is
-# present (that is what --csubst_site_plots would have produced in-pipeline).
+#
+# matplotlib/pandas come from the cluster modules, so plot_og.py and
+# hyphy_by_site.py run directly. secstructartist and csubst do not, so those two
+# go through their apptainer images (override paths with SIMSAPIPER_IMG /
+# CSUBST_IMG, or BEA2_APPTAINER_DIR to point at a different image directory).
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
@@ -16,7 +19,14 @@ if [ $# -lt 2 ]; then
 fi
 
 results=$1; shift
-here=$(cd "$(dirname "$0")" && pwd)
+repo=$(cd "$(dirname "$0")" && pwd)
+here=$repo/bin
+
+# not APPTAINER_CACHEDIR: that can point at a staging dir rather than the images
+cache=${BEA2_APPTAINER_DIR:-${VSC_SCRATCH_VO_USER:-$repo}/.apptainer}
+SIMSAPIPER_IMG=${SIMSAPIPER_IMG:-$cache/slheidig-simsapiper-06.img}
+CSUBST_IMG=${CSUBST_IMG:-$cache/slheidig-csubst-01.img}
+
 cats=$results/foreground/categories_clean.tsv
 column=${CATEGORY_COLUMN:-temp_cat2}
 outgroup_level=${OUTGROUP_LEVEL:-Outgroup}
@@ -25,6 +35,13 @@ genetic_code=${GENETIC_CODE:-11}
 plot_format=${CSUBST_PLOT_FORMAT:-pdf}
 
 [ -f "$cats" ] || { echo "missing $cats" >&2; exit 1; }
+
+# run a command inside an apptainer image, with the repo and results bound in
+in_img() {
+    local img=$1; shift
+    apptainer exec --no-home --env PREPEND_PATH=/opt/conda/bin \
+        -B "$repo" -B "$(cd "$results" && pwd)" "$img" "$@"
+}
 
 for og in "$@"; do
     d=$results/ogs/$og
@@ -46,11 +63,17 @@ for og in "$@"; do
         echo "  !! skipping plot_og.py (need mapped tables and $aln)"
     fi
 
+    # secstructartist lives only in the simsapiper image
     dssp=$d/biophysics/dssp/${og}_dssp_mapped.tsv
     if [ -s "$dssp" ]; then
-        "$here/plot_dssp_ss.py" --og "$og" --mapped "$dssp" --categories "$cats" \
-            --column "$column" --outgroup-level "$outgroup_level" \
-            --consensus "$consensus" $hs --outdir "$d/plots"
+        if [ -f "$SIMSAPIPER_IMG" ]; then
+            in_img "$SIMSAPIPER_IMG" "$here/plot_dssp_ss.py" --og "$og" --mapped "$dssp" \
+                --categories "$cats" --column "$column" \
+                --outgroup-level "$outgroup_level" --consensus "$consensus" \
+                $hs --outdir "$d/plots"
+        else
+            echo "  !! skipping plot_dssp_ss.py (no image at $SIMSAPIPER_IMG)"
+        fi
     fi
 
     persite=$(find "$d/evolution/hyphy" -name "$og.*persite.tsv" 2>/dev/null | sort | tr '\n' ' ')
@@ -64,13 +87,14 @@ for og in "$@"; do
     cb=$d/evolution/csubst/native/search/csubst_cb_2.tsv
     codon=$d/alignment/$og.codon.pruned.fa
     rooted=$d/evolution/$og.rooted.nwk
-    if [ -s "$cb" ] && [ -s "$codon" ] && [ -s "$rooted" ] && command -v csubst >/dev/null; then
+    if [ -s "$cb" ] && [ -s "$codon" ] && [ -s "$rooted" ] && [ -f "$CSUBST_IMG" ]; then
         "$here/select_significant_pairs.py" --cb "$cb" \
             --ocn "${OCN_CUTOFF:-0.5}" --omega "${OMEGA_CUTOFF:-1.0}" > "$d/plots/pairs.txt" || true
         while read -r p; do
             [ -n "$p" ] || continue
-            csubst sites --alignment_file "$codon" --rooted_tree_file "$rooted" \
-                --genetic_code "$genetic_code" --branch_id "$p" --cb_file "$cb" \
+            in_img "$CSUBST_IMG" csubst sites --alignment_file "$codon" \
+                --rooted_tree_file "$rooted" --genetic_code "$genetic_code" \
+                --branch_id "$p" --cb_file "$cb" \
                 --tree_site_plot yes --site_state_plot yes --site_summary_plot yes \
                 --tree_site_plot_format "$plot_format" \
                 --outdir "$d/plots/csubst_sites" >/dev/null 2>&1 \

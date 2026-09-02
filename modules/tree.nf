@@ -3,10 +3,12 @@
 // fused into TREE: the two python steps take ~4 s and 9 s around a job that
 // takes minutes, and the csubst image carries iqtree3, python3 and ete4.
 //
-// With --csubst_reuse_iqtree, IQ-TREE additionally writes ancestral states
-// (-asr) and per-site rates (--rate) so csubst can reuse them instead of
-// running its own IQ-TREE. When the flag is off the two files are created
-// empty, so CSUBST keeps a single input signature and decides in bash.
+// Do NOT add -asr/--rate here to try to save csubst's own IQ-TREE call. csubst
+// already runs it with -te (fixed topology, no tree search) on the rooted tree
+// produced below, and relabels that tree itself before reconstructing states;
+// an externally supplied .state would not match its node numbering. The ASR
+// pass costs ~13% of the tree search, and -asr changes .treefile's internal
+// labels to <name>/<bootstrap>, which root_tree.py cannot parse.
 
 process MAKE_FOREGROUND {
     label 'small'
@@ -42,15 +44,15 @@ process TREE {
 
     output:
     tuple val(og), path("${og}.rooted.nwk"), emit: rooted
-    tuple val(og), path("${og}.treefile"), path("${og}.state"), path("${og}.rate"),
-          path("${og}.iqtree"), path("${og}.log"), emit: asr
+    path "${og}.treefile"
+    path "${og}.iqtree"
+    path "${og}.log"
     path "${og}.contree", optional: true
 
     script:
     def bb  = params.ufboot ? "-B ${params.ufboot}" : ''
-    def asr = params.csubst_reuse_iqtree ? '-asr --rate' : ''
     def opt = "-safe -s ${codon} --seqtype CODON${params.genetic_code} " +
-              "-m ${params.iqtree_model} ${bb} ${asr} -T ${task.cpus}"
+              "-m ${params.iqtree_model} ${bb} -T ${task.cpus}"
     """
     make_constraint.py --og ${og} --aln ${aln} --outgroup ${outgroup}
 
@@ -65,7 +67,6 @@ process TREE {
         echo "NOTE: ${og}: no outgroup strains present -> unconstrained tree (midpoint root downstream)"
         "\$IQ" ${opt} --prefix ${og} -redo -quiet
     fi
-    touch ${og}.state ${og}.rate
 
     root_tree.py --og ${og} --tree ${og}.treefile --outgroup ${outgroup} --out ${og}.rooted.nwk
     """
