@@ -4,7 +4,7 @@
 One row per (sequence, pruned-MSA position): identity columns, category, every
 biophysical predictor, and the position-level evolutionary annotations
 (identical for all sequences at a position):
-  csubst : convergent_n_strains / divergent_n_strains (hotspot recurrence)
+  csubst : convergent_n_strains (foreground hotspot recurrence)
   hyphy  : every column of the by-site table (per-method stats)
 
 Output: <og>_combined.tsv
@@ -71,11 +71,9 @@ def main():
     if args.hotspots:
         try:
             hs = pd.read_csv(args.hotspots, sep="\t")
-            for signal in ("convergent", "divergent"):
-                sub = hs[hs["signal"] == signal][["codon_site", "n_strains"]]
-                m = dict(zip(sub["codon_site"].astype(int), sub["n_strains"]))
-                base[f"csubst_{signal}_n_strains"] = (
-                    base["msa_position"].map(m).fillna(0).astype(int))
+            m = dict(zip(hs["codon_site"].astype(int), hs["n_strains"]))
+            base["csubst_convergent_n_strains"] = (
+                base["msa_position"].map(m).fillna(0).astype(int))
         except Exception as e:
             print(f"WARNING: {og}: hotspots not joined ({e})")
 

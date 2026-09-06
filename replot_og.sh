@@ -33,6 +33,7 @@ outgroup_level=${OUTGROUP_LEVEL:-Outgroup}
 consensus=${SS_CONSENSUS:-0.5}
 genetic_code=${GENETIC_CODE:-11}
 plot_format=${CSUBST_PLOT_FORMAT:-pdf}
+min_combinat_prob=${CSUBST_MIN_COMBINAT_PROB:-0.5}
 
 [ -f "$cats" ] || { echo "missing $cats" >&2; exit 1; }
 
@@ -85,16 +86,18 @@ for og in "$@"; do
 
     # csubst per-pair figures: needs the native search output and the codon MSA
     cb=$d/evolution/csubst/native/search/csubst_cb_2.tsv
+    stats=$d/evolution/csubst/native/search/csubst_cb_stats.tsv
     codon=$d/alignment/$og.codon.pruned.fa
     rooted=$d/evolution/$og.rooted.nwk
-    if [ -s "$cb" ] && [ -s "$codon" ] && [ -s "$rooted" ] && [ -f "$CSUBST_IMG" ]; then
-        "$here/select_significant_pairs.py" --cb "$cb" \
-            --ocn "${OCN_CUTOFF:-0.5}" --omega "${OMEGA_CUTOFF:-1.0}" > "$d/plots/pairs.txt" || true
+    if [ -s "$cb" ] && [ -s "$stats" ] && [ -s "$codon" ] && [ -s "$rooted" ] && [ -f "$CSUBST_IMG" ]; then
+        "$here/select_significant_pairs.py" --cb "$cb" --stats "$stats" \
+            > "$d/plots/pairs.txt" || true
         while read -r p; do
             [ -n "$p" ] || continue
             in_img "$CSUBST_IMG" csubst sites --alignment_file "$codon" \
                 --rooted_tree_file "$rooted" --genetic_code "$genetic_code" \
                 --branch_id "$p" --cb_file "$cb" \
+                --min_combinat_prob "$min_combinat_prob" \
                 --tree_site_plot yes --site_state_plot yes --site_summary_plot yes \
                 --tree_site_plot_format "$plot_format" \
                 --outdir "$d/plots/csubst_sites" >/dev/null 2>&1 \

@@ -26,7 +26,6 @@ import secstructartist as ssa
 PALETTE = ["blue", "darkred", "darkorange", "green", "purple", "teal", "olive", "magenta"]
 HOTSPOT_STYLE = {
     "convergent": dict(color="darkorange", linestyle="-", linewidth=1.0, alpha=0.8),
-    "divergent": dict(color="purple", linestyle=":", linewidth=1.0, alpha=0.8),
 }
 SS3 = ["H", "E", "L"]
 SS_NAME = {"H": "Helix", "E": "Sheet", "L": "Loop"}   # loop = DSSP T, S, unassigned
@@ -89,8 +88,7 @@ def main():
     hotspots = {}
     if args.hotspots and os.path.exists(args.hotspots):
         hs = pd.read_csv(args.hotspots, sep="\t")
-        for signal in ("convergent", "divergent"):
-            hotspots[signal] = sorted(hs.loc[hs["signal"] == signal, "codon_site"].astype(int))
+        hotspots["convergent"] = sorted(hs["codon_site"].astype(int))
 
     # ---- per-category frequency + consensus ---------------------------------
     seq_cat = df.drop_duplicates("sequence_id").set_index("sequence_id")["category"]

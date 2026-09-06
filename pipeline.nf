@@ -46,6 +46,7 @@ log.info """
    dssp (--dssp)                     : ${params.dssp}
    structures (--structure_dir)      : ${params.structure_dir}
    csubst (--csubst)                 : ${params.csubst}
+   csubst output stat                : ${params.csubst_output_stat}
    hyphy (--hyphy)                   : ${params.hyphy}
    hyphy methods (--hyphy_methods)   : ${params.hyphy_methods}
    hyphy fg methods (--hyphy_fg_methods): ${params.hyphy_fg_methods}

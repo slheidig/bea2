@@ -2,8 +2,8 @@
 """Per-OG plots: pruned-MSA heatmap + per-feature line plots by category.
 
 Line plots (one PDF per feature): per-category mean with min/max band across
-the pruned-MSA positions, overlaid with csubst convergent/divergent hotspot
-sites. Category colours are assigned dynamically from the values present in
+the pruned-MSA positions, overlaid with csubst convergent hotspot sites.
+Category colours are assigned dynamically from the values present in
 the chosen categories column (outgroup level always grey, drawn first).
 
 Inputs: pruned AA alignment, categories_clean.tsv, mapped predictor TSVs,
@@ -24,7 +24,6 @@ STANDARD_AA = list("ACDEFGHIKLMNPQRSTVWY")
 PALETTE = ["blue", "darkred", "darkorange", "green", "purple", "teal", "olive", "magenta"]
 HOTSPOT_STYLE = {
     "convergent": dict(color="darkorange", linestyle="-", linewidth=1.0, alpha=0.8),
-    "divergent": dict(color="purple", linestyle=":", linewidth=1.0, alpha=0.8),
 }
 
 
@@ -84,8 +83,7 @@ def main():
     hotspots = {}
     if args.hotspots and os.path.exists(args.hotspots):
         hs = pd.read_csv(args.hotspots, sep="\t")
-        for signal in ("convergent", "divergent"):
-            hotspots[signal] = sorted(hs.loc[hs["signal"] == signal, "codon_site"].astype(int))
+        hotspots["convergent"] = sorted(hs["codon_site"].astype(int))
 
     # ---- MSA heatmap -------------------------------------------------------
     L = len(next(iter(seqs.values())))

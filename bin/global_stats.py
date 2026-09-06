@@ -8,8 +8,8 @@ branch-pair tables). Produces, in --outdir:
   og_means.png                  distribution of per-OG means per feature, by category
   og_means.tsv                  per-OG per-category mean of every feature
   relax_summary.tsv (+ .png)    all RELAX rows + K distribution
-  branch_pairs_all.tsv (+ .png) all csubst pairs + OCN/omega distributions
-  csubst_hotspot_counts.tsv     hotspot sites per OG
+  branch_pairs_all.tsv (+ .png) all csubst convergent pairs + OCN/omega distributions
+  csubst_hotspot_counts.tsv     convergent foreground pairs per OG
 """
 import argparse
 import os
@@ -149,17 +149,17 @@ def main():
         bp = pd.concat([pd.read_csv(f, sep="\t") for f in args.branch_pairs], ignore_index=True)
         bp.to_csv(out("branch_pairs_all.tsv"), sep="\t", index=False)
         fig, axes = plt.subplots(1, 2, figsize=(9, 3))
-        for ax, colname in zip(axes, ("OCN", "omegaC")):
+        for ax, colname in zip(axes, ("OCNany2spe", "omegaCany2spe")):
             v = pd.to_numeric(bp[colname], errors="coerce").dropna()
             if len(v):
                 ax.hist(np.clip(v, 0, 20), bins=60, color="#cc6677")
             ax.set_xlabel(f"{colname} (clipped at 20)")
             ax.set_ylabel("pairs")
-        fig.suptitle("csubst significant foreground pairs, all OGs")
+        fig.suptitle("csubst convergent foreground pairs, all OGs")
         fig.tight_layout()
         fig.savefig(out("branch_pairs_hist.png"), dpi=140)
         plt.close(fig)
-        (bp.groupby(["og", "signal"]).size().rename("n_pairs").reset_index()
+        (bp.groupby("og").size().rename("n_pairs").reset_index()
            .to_csv(out("csubst_hotspot_counts.tsv"), sep="\t", index=False))
 
     print(f"global stats written to {args.outdir}/")
