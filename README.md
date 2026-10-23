@@ -82,7 +82,8 @@ results/
       hyphy/native/       all JSONs + logs        hyphy/  per-method persite + by_site tables
       <og>.rooted.nwk
     <og>_combined.tsv     ← THE table: row = residue per sequence per pruned-MSA position
-    plots/                only for OGs selected with --plot (see below)
+    plots/                <og>.rooted.pdf (always, with UFBoot supports); the rest
+                          only for OGs selected with --plot (see below)
   stats/                  global distributions & summaries over all OGs
   foreground/             foreground.tsv, strain lists, cleaned categories
 ```

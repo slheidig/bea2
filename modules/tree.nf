@@ -35,6 +35,8 @@ process TREE {
         pattern: "${og}.{treefile,contree,iqtree,log}"
     publishDir "${params.outdir}/ogs/${og}/evolution", mode: 'copy',
         pattern: "${og}.rooted.nwk"
+    publishDir "${params.outdir}/ogs/${og}/plots", mode: 'copy',
+        pattern: "${og}.rooted.pdf"
 
     input:
     tuple val(og), path(aln), path(codon)
@@ -46,6 +48,7 @@ process TREE {
     path "${og}.iqtree"
     path "${og}.log"
     path "${og}.contree", optional: true
+    path "${og}.rooted.pdf"
 
     script:
     def bb  = params.ufboot ? "-B ${params.ufboot}" : ''
@@ -66,6 +69,7 @@ process TREE {
         "\$IQ" ${opt} --prefix ${og} -redo -quiet
     fi
 
-    root_tree.py --og ${og} --tree ${og}.treefile --outgroup ${outgroup} --out ${og}.rooted.nwk
+    root_tree.py --og ${og} --tree ${og}.treefile --outgroup ${outgroup} --out ${og}.rooted.nwk \\
+        --plot ${og}.rooted.pdf
     """
 }
